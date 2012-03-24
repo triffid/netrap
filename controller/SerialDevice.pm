@@ -9,11 +9,13 @@ use POSIX;
 use IO::Handle;
 use IO::Select;
 
+use List::Util;
+
 use Data::Dumper;
 
 my $debug = 0;
 
-my $max_queue = 1;
+my $max_queue = 16;
 
 sub new {
 	my $class = shift;
@@ -24,12 +26,16 @@ sub new {
 		device => $port,
 		baud => $baud,
 		queue => [],
+		queues => {},
+		queuesorder => [],
+		lastqueue => 0,
 		rxbuffer => "",
 		buffer_size => 256,
 		token => 0,
 		readselect => undef,
 		writeselect => undef,
 		errorselect => undef,
+		error => 0,
 	};
 	
 	print STDERR "Open $port @ $baud\n" if $debug;
@@ -70,6 +76,7 @@ sub readline {
 			my $line = $1;
 			if ($line =~ /\b(ok|start)\b/i) {
 				$self->{token}++;
+				$self->funnelqueues();
 				printf STDERR "TOKEN: %d, QUEUE: %d\n", $self->{token}, scalar @{$self->{queue}} if $debug;
 				if (@{$self->{queue}}) {
 					$self->{writeselect}->add($self->{port}->{HANDLE});
@@ -80,31 +87,114 @@ sub readline {
 	}
 }
 
+sub error {
+	my $self = shift;
+	$self->{error};
+}
+
 sub canenqueue {
 	my $self = shift;
+	my $queue = shift;
 	my $num = shift || 1;
-	return scalar @{$self->{queue}} + $num <= $max_queue;
+	if (!exists $self->{queues}->{Dumper \$queue}) {
+		push @{$self->{queuesorder}}, Dumper\ $queue;
+		$self->{queues}->{Dumper \$queue} = [];
+	}
+	return scalar @{$self->{queues}->{Dumper \$queue}} + $num <= $max_queue;
 }
 
 sub enqueue {
 	my $self = shift;
+	my $queue = shift;
+	if (!exists $self->{queues}->{Dumper \$queue}) {
+		push @{$self->{queuesorder}}, Dumper\ $queue;
+		$self->{queues}->{Dumper \$queue} = [];
+	}
 	printf STDERR "Enqueue: @_\n" if $debug;
-	my $items = push @{$self->{queue}}, @_;
+	my $items = push @{$self->{queues}->{Dumper \$queue}}, @_;
 	printf STDERR "Enqueued $items lines\n" if $debug;
 	if ($self->{token}) {
 		$self->{writeselect}->add($self->{port}->{HANDLE});
-		if (IO::Select::select(undef, $self->{writeselect}, undef, 0)) {
-			select_canwrite();
-		}
+		#if (IO::Select::select(undef, $self->{writeselect}, undef, 0)) {
+		#	select_canwrite();
+		#}
 	}
+}
+
+sub closequeue {
+	my $self = shift;
+	my $queue = shift;
+
+	my $index = List::Util::first { $_ eq $queue } @{$self->{queuesorder}};
+	splice @{$self->{queuesorder}}, $index, 1
+		if defined $index;
+
+	delete $self->{queues}->{Dumper \$queue}
+		if exists $self->{queues}->{Dumper \$queue};
+}
+
+sub funnelqueues {
+	my $self = shift;
+
+	my $queuecount = 0;
+	
+	foreach (@{$self->{queuesorder}}) {
+		$queuecount += scalar @{$self->{queues}->{$_}};
+	}
+	
+	my $i = $self->{lastqueue} + 1;
+	$i = 0 if $i >= scalar @{$self->{queuesorder}};
+	while (scalar @{$self->{queue}} < $max_queue && $queuecount > 0) {
+		
+		my $queue = $self->{queuesorder}->[$i];
+		
+		printf "checking queue %d which has %d items\n", $i, scalar @{$self->{queues}->{$queue}} if $debug;
+		
+		if (@{$self->{queues}->{$queue}}) {
+			push @{$self->{queue}}, shift @{$self->{queues}->{$queue}};
+			$self->{lastqueue} = $i;
+			$queuecount--;
+		}
+		
+		$i++;
+		$i = 0 if $i >= scalar @{$self->{queuesorder}};
+	}
+	return $queuecount;
 }
 
 sub select {
 	my ($self, $readselect, $writeselect, $errorselect) = @_;
 	$readselect->add($self->{port}->{HANDLE});
+	$writeselect->add($self->{port}->{HANDLE})
+		if $self->{token};
 	$self->{readselect} = $readselect;
 	$self->{writeselect} = $writeselect;
 	$self->{errorselect} = $errorselect;
+}
+
+sub onselect {
+	my ($self, $canread, $canwrite, $error) = @_;
+	if (ref $error eq 'ARRAY') {
+		for (@{$error}) {
+			if ($_ == $self->{port}->{HANDLE}) {
+				$self->select_error();
+			}
+		}
+	}
+	if (ref $canread eq 'ARRAY') {
+		for (@{$canread}) {
+			if ($_ == $self->{port}->{HANDLE}) {
+				$self->select_canread();
+			}
+		}
+	}
+	if (ref $canwrite eq 'ARRAY') {
+		for (@{$canwrite}) {
+			if ($_ == $self->{port}->{HANDLE}) {
+				$self->select_canwrite();
+			}
+		}
+	}
 }
 
 sub select_ishandle {
@@ -121,6 +211,9 @@ sub select_canread {
 
 sub select_canwrite {
 	my $self = shift;
+	
+	my $queuecount = $self->funnelqueues();
+	
 	if ($self->{token}) {
 		if (@{$self->{queue}}) {
 			my $line = shift @{$self->{queue}};
@@ -132,7 +225,7 @@ sub select_canwrite {
 				$self->{writeselect}->remove($self->{port}->{HANDLE});
 			}
 		}
-		else {
+		elsif ($queuecount == 0) {
 			$self->{writeselect}->remove($self->{port}->{HANDLE});
 		}
 	}
@@ -140,6 +233,7 @@ sub select_canwrite {
 
 sub select_error {
 	my $self = shift;
+	$self->{error} = 1;
 }
 
 1;

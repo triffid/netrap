@@ -33,18 +33,15 @@ my $printing = 0;
 
 do {
 	my ($canread, $canwrite, $error) = IO::Select::select($readselect, $writeselect, $errorselect, 10);
+	$printer->onselect($canread, $canwrite, $error);
 	if (ref $error eq 'ARRAY') {
 		for (@{$error}) {
 			if ($_ eq \*STDIN) {
 				printf("stdin closed\n");
-				exit(0);
+				exit(0) unless $loaded;
 			}
 			elsif ($_ eq \*STDOUT) {
-				exit(1);
-			}
-			elsif ($printer->select_ishandle($_)) {
-				$printer = undef;
-				$printer = new SerialDevice("/dev/arduino", 115200);
+				exit(1) unless $loaded;
 			}
 			elsif ($_ eq $loaded) {
 				printf "Error reading file, finishing\n";
@@ -52,23 +49,15 @@ do {
 				close $loaded;
 				undef $loaded;
 			}
-			else {
-				printf "error: unknown filehandle! this should never happen\n";
-			}
+		}
+		if ($printer->error) {
+			$printer = undef;
+			$printer = new SerialDevice("/dev/arduino", 115200);
 		}
 	}
 	if (ref $canread eq 'ARRAY') {
 		for (@{$canread}) {
-			if ($printer->select_ishandle($_)) {
-				$printer->select_canread();
-				if ($printer->canenqueue()) {
-					if ($loaded && $printing) {
-						$readselect->add($loaded);
-						#printf "QUEUE resume: %d\n", scalar @{$printer->{queue}};
-					}
-				}
-			}
-			elsif ($_ eq \*STDIN) {
+			if ($_ eq \*STDIN) {
 				my $inline = <>;
 				if (!defined $inline) {
 					printf("stdin closed\n");
@@ -76,6 +65,10 @@ do {
 				}
 				chomp $inline;
 				switch ($inline) {
+					case /^poke$/ {
+						$printer->{token}++;
+						$writeselect->add($printer->{port}->{HANDLE});
+					}
 					case /^load\s+\S.*$/ {
 						$inline =~ /load\s+(\S.*)$/;
 						my $f = $1;
@@ -122,22 +115,24 @@ do {
 							printf "Nothing to close\n";
 						}
 					}
+					case /^dump$/ {
+						printf Dumper \$printer;
+					}
 					else {
-						$printer->enqueue($inline);
+						$printer->enqueue(\*STDIN, $inline);
 					}
 				}
 			}
-			elsif ($_ eq $loaded) {
+			elsif ($loaded && $_ eq $loaded) {
 				my $inline = <$_>;
 				if (defined $inline) {
 					chomp $inline;
 					$inline =~ s/;.*//;
 					$inline =~ s/\(.*?\)//;
 					if ($inline =~ /[A-Z]\d/) {
-						$printer->enqueue($inline);
+						$printer->enqueue($loaded, $inline);
 						if (! $printer->canenqueue()) {
 							$readselect->remove($loaded);
-							#printf "QUEUE pause: %d\n", scalar @{$printer->{queue}};
 						}
 					}
 				}
@@ -149,23 +144,22 @@ do {
 					undef $loaded;
 				}
 			}
-			else {
-				printf "can read unknown filehandle! this should never happen.\n";
-			}
 		}
 	}
 	if (ref $canwrite eq 'ARRAY') {
 		for (@{$canwrite}) {
-			if ($printer->select_ishandle($_)) {
-				$printer->select_canwrite();
-			}
+		}
+	}
+	if ($printer->canenqueue()) {
+		if ($loaded && $printing) {
+			$readselect->add($loaded);
 		}
 	}
 	while ($printer->canread()) {
 		printf "< %s\n", $printer->readline();
 	}
 	if ($printer->canread() == 0 && $printer->canwrite() && $status == 0) {
-		$printer->enqueue(
+		$printer->enqueue(\*STDIN,
 			"M115",
 			"M114",
 			"M119",
