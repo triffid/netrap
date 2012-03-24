@@ -131,7 +131,7 @@ do {
 					$inline =~ s/\(.*?\)//;
 					if ($inline =~ /[A-Z]\d/) {
 						$printer->enqueue($loaded, $inline);
-						if (! $printer->canenqueue()) {
+						if ($printer->canenqueue() <= 0) {
 							$readselect->remove($loaded);
 						}
 					}
@@ -150,7 +150,7 @@ do {
 		for (@{$canwrite}) {
 		}
 	}
-	if ($printer->canenqueue()) {
+	if ($printer->canenqueue($loaded) > 0) {
 		if ($loaded && $printing) {
 			$readselect->add($loaded);
 		}

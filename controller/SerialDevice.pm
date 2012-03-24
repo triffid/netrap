@@ -95,12 +95,11 @@ sub error {
 sub canenqueue {
 	my $self = shift;
 	my $queue = shift;
-	my $num = shift || 1;
 	if (!exists $self->{queues}->{Dumper \$queue}) {
 		push @{$self->{queuesorder}}, Dumper\ $queue;
 		$self->{queues}->{Dumper \$queue} = [];
 	}
-	return scalar @{$self->{queues}->{Dumper \$queue}} + $num <= $max_queue;
+	return $max_queue - scalar @{$self->{queues}->{Dumper \$queue}};
 }
 
 sub enqueue {
