@@ -31,6 +31,16 @@ my $status = 0;
 my $loaded = undef;
 my $printing = 0;
 
+sub close_loaded {
+	if ($loaded) {
+		$printer->closequeue($loaded);
+		$readselect->remove($loaded);
+		$printing = 0;
+		close $loaded;
+		undef $loaded;
+	}
+}
+
 do {
 	my ($canread, $canwrite, $error) = IO::Select::select($readselect, $writeselect, $errorselect, 10);
 	$printer->onselect($canread, $canwrite, $error);
@@ -45,9 +55,7 @@ do {
 			}
 			elsif ($_ eq $loaded) {
 				printf "Error reading file, finishing\n";
-				$canread->remove($loaded);
-				close $loaded;
-				undef $loaded;
+				close_loaded();
 			}
 		}
 		if ($printer->error) {
@@ -105,11 +113,8 @@ do {
 					}
 					case /^close$/ {
 						if ($loaded) {
-							$readselect->remove($loaded);
-							close $loaded;
-							undef $loaded;
+							close_loaded();
 							printf "Closed.\n";
-							$printing = 0;
 						}
 						else {
 							printf "Nothing to close\n";
@@ -131,17 +136,16 @@ do {
 					$inline =~ s/\(.*?\)//;
 					if ($inline =~ /[A-Z]\d/) {
 						$printer->enqueue($loaded, $inline);
-						if ($printer->canenqueue() <= 0) {
+						if ($printer->canenqueue($loaded) <= 0) {
+							printf STDERR "Print Queue full\n";
 							$readselect->remove($loaded);
 						}
 					}
 				}
 				else {
-					printf "Finished, closing\n";
-					$readselect->remove($_);
+					printf "Finished. close to release file\n";
+					$readselect->remove($loaded);
 					$printing = 0;
-					close $loaded;
-					undef $loaded;
 				}
 			}
 		}
@@ -152,11 +156,9 @@ do {
 	}
 	if ($printer->canenqueue($loaded) > 0) {
 		if ($loaded && $printing) {
+			printf STDERR "Print Queue filling\n";
 			$readselect->add($loaded);
 		}
-	}
-	while ($printer->canread()) {
-		printf "< %s\n", $printer->readline();
 	}
 	if ($printer->canread() == 0 && $printer->canwrite() && $status == 0) {
 		$printer->enqueue(\*STDIN,

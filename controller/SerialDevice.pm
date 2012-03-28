@@ -125,11 +125,12 @@ sub closequeue {
 	my $queue = shift;
 
 	my $index = List::Util::first { $_ eq $queue } @{$self->{queuesorder}};
-	splice @{$self->{queuesorder}}, $index, 1
-		if defined $index;
+	if (defined $index) {
+		splice @{$self->{queuesorder}}, $index, 1;
 
-	delete $self->{queues}->{Dumper \$queue}
-		if exists $self->{queues}->{Dumper \$queue};
+		delete $self->{queues}->{Dumper \$queue}
+			if exists $self->{queues}->{Dumper \$queue};
+	}
 }
 
 sub funnelqueues {
@@ -206,6 +207,9 @@ sub select_canread {
 	my ($count, $data) = $self->{port}->read(256);
 	printf STDERR "read %d: %s\n", $count, $data if $debug && $count;
 	$self->{rxbuffer} .= $data;
+	while ($self->canread()) {
+		printf "< %s\n", $self->readline();
+	}
 }
 
 sub select_canwrite {
