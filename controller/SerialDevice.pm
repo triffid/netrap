@@ -36,6 +36,7 @@ sub new {
 		writeselect => undef,
 		errorselect => undef,
 		error => 0,
+		listeners => {},
 	};
 	
 	print STDERR "Open $port @ $baud\n" if $debug;
@@ -52,6 +53,18 @@ sub new {
 
 	bless $self, $class;
 	return $self;
+}
+
+sub add_listener {
+	my $self = shift;
+	my $listener = shift;
+	$self->{listeners}->{$listener} = $listener;
+}
+
+sub remove_listener {
+	my $self = shift;
+	my $listener = shift;
+	delete $self->{listeners}->{$listener};
 }
 
 sub canread {
@@ -72,18 +85,6 @@ sub canwrite {
 sub readline {
 	my $self = shift;
 	if (length $self->{rxbuffer}) {
-		if ($self->{rxbuffer} =~ s/^(.*?)\r?\n//s) {
-			my $line = $1;
-			if ($line =~ /\b(ok|start)\b/i) {
-				$self->{token}++;
-				$self->funnelqueues();
-				printf STDERR "TOKEN: %d, QUEUE: %d\n", $self->{token}, scalar @{$self->{queue}} if $debug;
-				if (@{$self->{queue}}) {
-					$self->{writeselect}->add($self->{port}->{HANDLE});
-				}
-			}
-			return $line;
-		}
 	}
 }
 
@@ -206,9 +207,52 @@ sub select_canread {
 	my $self = shift;
 	my ($count, $data) = $self->{port}->read(256);
 	printf STDERR "read %d: %s\n", $count, $data if $debug && $count;
-	$self->{rxbuffer} .= $data;
-	while ($self->canread()) {
-		printf "< %s\n", $self->readline();
+	if ((! defined $data) || $count == 0) {
+		select_error();
+	}
+	else {
+		$self->{rxbuffer} .= $data;
+		while ($self->{rxbuffer} =~ s/^(.*?)\r?\n//s) {
+			my $line = $1;
+			printf STDERR "\tREAD '%s'\n", $line if $debug;
+			for (keys %{$self->{listeners}}) {
+				my $listener = $self->{listeners}->{$_};
+				printf STDERR "\t found a %s\n", (ref $listener) if $debug;
+				if (ref $listener eq 'CODE') {
+					$listener->($self, $line);
+				}
+				elsif (ref $listener eq 'GLOB') {
+					$listener->write("$line\n");
+				}
+				elsif ((ref $listener) =~ /^IO::Socket/) {
+					$listener->write("$line\n");
+					printf STDERR "\t\tWROTE %s to %s\n", $line, $listener if $debug;
+				}
+				elsif (ref $listener eq 'HASH' && exists $listener->{txqueue}) {
+					push @{$listener->{txqueue}}, $line;
+					if (exists $listener->{socket}) {
+						$self->{writeselect}->add($listener->{socket});
+					}
+					if (exists $listener->{HANDLE}) {
+						$self->{writeselect}->add($listener->{HANDLE});
+					}
+				}
+			}
+			if ($line =~ /ok/i || $line =~ /^start/i) {
+				if ($line =~ /^start/i) {
+					$self->{token} = 1;
+				}
+				else {
+					$self->{token}++;
+				}
+				$self->funnelqueues();
+				printf STDERR "TOKEN: %d, QUEUE: %d\n", $self->{token}, scalar @{$self->{queue}} if $debug;
+				if (@{$self->{queue}}) {
+					$self->{writeselect}->add($self->{port}->{HANDLE});
+				}
+			}
+		}
+		printf STDERR "\t\tRXBUFFER has %d bytes: '%s'\n", length $self->{rxbuffer}, $self->{rxbuffer} if $debug;
 	}
 }
 
@@ -237,6 +281,7 @@ sub select_canwrite {
 sub select_error {
 	my $self = shift;
 	$self->{error} = 1;
+	undef $self->{port};
 }
 
 1;
