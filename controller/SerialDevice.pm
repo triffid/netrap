@@ -15,7 +15,7 @@ use Data::Dumper;
 
 my $debug = 0;
 
-my $max_queue = 16;
+my $max_queue = 4;
 
 sub new {
 	my $class = shift;
@@ -29,9 +29,11 @@ sub new {
 		queues => {},
 		queuesorder => [],
 		lastqueue => 0,
+		maxqueue => 4,
 		rxbuffer => "",
 		buffer_size => 256,
 		token => 0,
+		maxtoken => 1,
 		readselect => undef,
 		writeselect => undef,
 		errorselect => undef,
@@ -242,7 +244,7 @@ sub select_canread {
 				if ($line =~ /^start/i) {
 					$self->{token} = 1;
 				}
-				else {
+				elsif ($self->{token} < $self->{maxtoken}) {
 					$self->{token}++;
 				}
 				$self->funnelqueues();
