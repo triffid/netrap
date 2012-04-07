@@ -71,6 +71,7 @@ $printer->add_listener($outputrunner);
 sub parseInputLine {
 	my ($source, $replydest, $inline) = @_;
 	chomp $inline;
+	$inline =~ s/[\r\n]*$//s;
 	switch ($inline) {
 		case /^poke$/ {
 			$printer->{token}++;
@@ -171,7 +172,7 @@ sub parseInputLine {
 		}
 		else {
 			if ($inline =~ /\S/) {
-				$printer->enqueue(\*STDIN, $inline);
+				$printer->enqueue($source, $inline);
 			}
 			last;
 		}
