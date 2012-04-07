@@ -17,6 +17,16 @@
 #include	<unistd.h>
 #include	<fcntl.h>
 
+
+
+#define	DEFAULT_PORT "/dev/arduino"
+#define	DEFAULT_BAUD 115200
+
+#define	DEFAULT_LISTEN_ADDR 0.0.0.0
+#define	DEFAULT_LISTEN_PORT 2560
+
+
+
 #define	BUFFER_SIZE 1024
 typedef struct {
 	unsigned int head;
@@ -404,8 +414,8 @@ int main(int argc, char **argv) {
 
 	int running = 1;
 
-	char * printer_port = "/dev/arduino";
-	int printer_baud = 115200;
+	char * printer_port = DEFAULT_PORT;
+	int printer_baud = DEFAULT_BAUD;
 
 	printer_socket *printer = new_printer_socket(printer_port, printer_baud);
 
@@ -435,6 +445,21 @@ int main(int argc, char **argv) {
 		for (int i = 0; i < errorsockets->length; i++)
 			FD_SET(((local_socket *) errorsockets->data[i])->fd, errorselect);
 		select(maxfd, readselect, writeselect, errorselect, NULL);
+
+		for (int i = 0; i < errorsockets->length; i++) {
+			local_socket *s = (local_socket *) errorsockets->data[i];
+			if (FD_ISSET(s->fd, errorselect)) {
+				printf("error on %d: %p\n", s->fd, s);
+				switch (s->type) {
+					case SOCKTYPE_LOCAL:
+						break;
+					case SOCKTYPE_PRINTER:
+						break;
+					case SOCKTYPE_CLIENT:
+						break
+				}
+			}
+		}
 
 		for (int i = 0; i < readsockets->length; i++) {
 			local_socket *s = (local_socket *) readsockets->data[i];
@@ -484,7 +509,13 @@ int main(int argc, char **argv) {
 									ringbuffer_readline(&sock->rxbuffer, line, BUFFER_SIZE);
 									//printf(", got a line: %s", line);
 									int r = snprintf(buf, BUFFER_SIZE, "< %s", line);
-									write(sock->lastmsgsock->fd, buf, r);
+									if (sock->lastmsgsock->type == SOCKTYPE_LOCAL)
+										write(sock->lastmsgsock->fd, buf, r);
+									else if (sock->lastmsgsock->ty[e == SOCKTYPE_CLIENT) {
+										ringbuffer_write(((client_socket *) sock->lastmsgsock)->txbuffer, buf, r);
+										if (array_indexof(writesockets, sock) == -1)
+											array_push(writesockets, sock);
+									}
 									if (strncmp(line, "ok", 2) == 0) {
 										//fprintf(stderr, "got token!");
 										if (sock->tokens < sock->maxtoken)
@@ -524,7 +555,13 @@ int main(int argc, char **argv) {
 				//printf("write %d", s->fd);
 				switch (s->type) {
 					case SOCKTYPE_LOCAL:
-						//printf(" (local)");
+						{
+							local_socket *sock = (client_socket *) s;
+							if (ringbuffer_canread(sock->txbuffer) > 0)
+								ringbuffer_readtofd(sock->txbuffer, s->fd);
+							if (ringbuffer_canread(sock->txbuffer) == 0)
+								array_delete(writesockets, s);
+						}
 						break;
 					case SOCKTYPE_PRINTER:
 						{
@@ -543,7 +580,13 @@ int main(int argc, char **argv) {
 						}
 						break;
 					case SOCKTYPE_CLIENT:
-						//printf(" (client)");
+						{
+							client_socket *sock = (client_socket *) s;
+							if (ringbuffer_canread(sock->txbuffer) > 0)
+								ringbuffer_readtofd(sock->txbuffer, s->fd);
+							if (ringbuffer_canread(sock->txbuffer) == 0)
+								array_delete(writesockets, s);
+						}
 						break;
 				}
 
