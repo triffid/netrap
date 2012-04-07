@@ -322,6 +322,34 @@ array* array_delete(array *a, void *element) {
 	return a;
 }
 
+int sock2a(void *address, char *buffer, int length) {
+	void *addr;
+	char buf[256];
+	uint16_t port;
+	char *fmt = NULL;
+	if (((struct sockaddr *) address)->sa_family == AF_INET) {
+		struct sockaddr_in *s = (struct sockaddr_in *) address;
+		addr = &s->sin_addr;
+		port = s->sin_port;
+		fmt = "%s:%d";
+	}
+	else if (((struct sockaddr *) address)->sa_family == AF_INET6) {
+		struct sockaddr_in6 *s = (struct sockaddr_in6 *) address;
+		addr = &s->sin6_addr;
+		port = s->sin6_port;
+		fmt = "[%s].%d";
+	}
+
+	if (fmt) {
+		inet_ntop(((struct sockaddr * ) address)->sa_family, addr, buf, 256);
+		return snprintf(buffer, length, fmt, buf, ntohs(port));
+	}
+	else {
+		fprintf(stderr, "bad sockaddr %p, family is %d\n", address, ((struct sockaddr *) address)->sa_family);
+		exit(1);
+	}
+}
+
 speed_t baud2termios(int baud) {
 	switch(baud) {
 		case 0:
@@ -533,22 +561,11 @@ int main(int argc, char **argv) {
 
 		void *addr;
 		int port;
-		char *fmt;
-		if (rp->ai_family == AF_INET) {
-			struct sockaddr_in *s = (struct sockaddr_in *) rp->ai_addr;
-			addr = &s->sin_addr;
-			port = s->sin_port;
-			fmt = "Listening on %s:%d\n";
-		}
-		else if (rp->ai_family == AF_INET6) {
+		if (rp->ai_family == AF_INET6) {
 			if (setsockopt(listensock->socket.fd, IPPROTO_IPV6, IPV6_V6ONLY, &yes, sizeof(int)) == -1) {
 				perror("setsockopt");
 				exit(1);
 			}
-			struct sockaddr_in6 *s = (struct sockaddr_in6 *) rp->ai_addr;
-			addr = &s->sin6_addr;
-			port = s->sin6_port;
-			fmt = "Listening on [%s].%d\n";
 		}
 
 		if (bind(listensock->socket.fd, rp->ai_addr, rp->ai_addrlen) == -1) {
@@ -561,8 +578,8 @@ int main(int argc, char **argv) {
 			exit(1);
 		}
 
-		inet_ntop(listensock->addr.ss_family, addr, buf, BUFFER_SIZE);
-		fprintf(stderr, fmt, buf, ntohs(port));
+		sock2a(rp->ai_addr, buf, BUFFER_SIZE);
+		fprintf(stderr, "Listening on %s\n", buf);
 
 		readsockets = array_push(readsockets, listensock);
 		errorsockets = array_push(errorsockets, listensock);
@@ -660,7 +677,8 @@ int main(int argc, char **argv) {
 								while (sock->rxbuffer.nl > 0) {
 									char line[BUFFER_SIZE];
 									int r = ringbuffer_readline(&sock->rxbuffer, line, BUFFER_SIZE);
-									printf("< %s", line);
+									if (sock->lastmsgsock->fd > 2)
+										printf("< %s", line);
 									int m = snprintf(buf, BUFFER_SIZE, "< %s", line);
 									if (sock->lastmsgsock->type == SOCKTYPE_LOCAL)
 										write(sock->lastmsgsock->fd, buf, m);
@@ -692,8 +710,8 @@ int main(int argc, char **argv) {
 							unsigned int r = ringbuffer_writefromfd(&sock->rxbuffer, s->fd, ringbuffer_canwrite(&sock->rxbuffer));
 							//printf("writefromfd %p %d %d got %d nl %d\n", &sock->rxbuffer, s->fd, ringbuffer_canwrite(&sock->rxbuffer), r, sock->rxbuffer.nl);
 							if (r == 0) {
-								inet_ntop(sock->addr.ss_family, &sock->addr, buf, BUFFER_SIZE);
-								printf("client %s:%d disconnected\n", buf, ((struct sockaddr_in *) &sock->addr)->sin_port);
+								sock2a(&sock->addr, buf, BUFFER_SIZE);
+								printf("client %s disconnected\n", buf);
 								close(sock->socket.fd);
 								readsockets = array_delete(readsockets, sock);
 								writesockets = array_delete(writesockets, sock);
@@ -705,8 +723,8 @@ int main(int argc, char **argv) {
 								printer->lastmsgsock = s;
 								ringbuffer_readline(&sock->rxbuffer, buf, BUFFER_SIZE);
 								char paddr[256];
-								inet_ntop(sock->addr.ss_family, &((struct sockaddr_in *) &sock->addr)->sin_addr, paddr, 256);
-								printf("from %s:%d (%d): %s", paddr, ntohs(((struct sockaddr_in *) &sock->addr)->sin_port), sock->socket.fd, buf);
+								sock2a(&sock->addr, paddr, 256);
+								printf("from %s (%d): %s", paddr, sock->socket.fd, buf);
 								ringbuffer_write(&printer->txbuffer, buf, r);
 								if (array_indexof(writesockets, printer) == -1)
 									writesockets = array_push(writesockets, printer);
@@ -723,8 +741,8 @@ int main(int argc, char **argv) {
 							ringbuffer_init(&newcs->txbuffer);
 							int socksize = sizeof(struct sockaddr_storage);
 							newcs->socket.fd = accept(s->fd, (struct sockaddr *) &newcs->addr, &socksize);
-							inet_ntop(newcs->addr.ss_family, &((struct sockaddr_in *) &newcs->addr)->sin_addr, buf, BUFFER_SIZE);
-							printf("from %s.%d, fd %d sock %p\n", buf, ntohs(((struct sockaddr_in *) &newcs->addr)->sin_port), newcs->socket.fd, newcs);
+							sock2a(&newcs->addr, buf, BUFFER_SIZE);
+							printf("from %s (%d) sock %p\n", buf, newcs->socket.fd, newcs);
 							readsockets = array_push(readsockets, newcs);
 							errorsockets = array_push(errorsockets, newcs);
 						}
