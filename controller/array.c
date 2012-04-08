@@ -15,6 +15,10 @@ array* array_init(void) {
 	return a;
 }
 
+void array_free(array *a) {
+	free(a);
+}
+
 array* array_push(array *a, void *element) {
 	//printf("push %s(%p): %p. %d->%d\n", a->name, a, element, a->length, a->length + 1);
 	a->length++;
