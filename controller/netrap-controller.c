@@ -90,6 +90,16 @@ typedef struct {
 
 	char * filename;
 	ssize_t filesize;
+
+	ringbuffer rxbuffer;
+
+	struct timeval starttime;
+
+	struct timeval lastpausetime;
+	struct timeval pausedtime;
+
+	char paused;
+	char eof;
 } file_socket;
 
 typedef struct {
@@ -275,11 +285,28 @@ array* array_push(array *a, void *element) {
 	return a;
 }
 
+array* array_unshift(array *a, void *element) {
+	//printf("push %s(%p): %p. %d->%d\n", a->name, a, element, a->length, a->length + 1);
+	a->length++;
+	a = realloc(a, sizeof(array) + (sizeof(void *) * a->length));
+	if (a == NULL) {
+		fprintf(stderr, "array_push: realloc failed: %s\n", strerror(errno));
+		exit(1);
+	}
+
+	memmove(&a->data[1], &a->data[0], sizeof(void *) * a->length);
+
+	a->data[0] = element;
+
+	return a;
+}
+
 void* array_pop(array *a) {
 	if (a->length) {
 		void *r = a->data[(a->length - 1)];
 		a->length--;
-		if (realloc(a, sizeof(array) + sizeof(void *) * a->length) == NULL) {
+		a = realloc(a, sizeof(array) + sizeof(void *) * a->length);
+		if (a == NULL) {
 			fprintf(stderr, "array_pop: realloc failed: %s\n", strerror(errno));
 			exit(1);
 		}
@@ -292,8 +319,9 @@ void* array_shift(array *a) {
 	if (a->length) {
 		void *r = a->data[0];
 		a->length--;
-		memmove(&a->data[1], &a->data[0], sizeof(void *) * a->length);
-		if (realloc(a, sizeof(array) + sizeof(void *) * a->length) == NULL) {
+		memmove(&a->data[0], &a->data[1], sizeof(void *) * a->length);
+		a = realloc(a, sizeof(array) + sizeof(void *) * a->length);
+		if (a == NULL) {
 			fprintf(stderr, "array_shift: realloc failed: %s\n", strerror(errno));
 			exit(1);
 		}
@@ -510,6 +538,8 @@ int main(int argc, char **argv) {
 
 	printer_socket *printer = new_printer_socket(printer_port, printer_baud);
 
+	file_socket *file = NULL;
+
 	if (printer->socket.fd >= maxfd)
 		maxfd = printer->socket.fd + 1;
 
@@ -695,6 +725,12 @@ int main(int argc, char **argv) {
 										//fprintf(stderr, "got token!");
 										if (sock->tokens < sock->maxtoken)
 											sock->tokens++;
+										for (int i = 0; i < errorsockets->length; i++) {
+											if (((local_socket *) errorsockets->data[i])->type == SOCKTYPE_CLIENT)
+												readsockets = array_push(readsockets, errorsockets->data[i]);
+										}
+										if (file != NULL)
+											writesockets = array_push(writesockets, sock);
 										//fprintf(stderr, " tokens: %d\n", sock->tokens);
 									}
 									else {
@@ -771,10 +807,35 @@ int main(int argc, char **argv) {
 							if (sock->txbuffer.nl > 0) {
 								//printf("write: nl: %d\n", sock->txbuffer.nl);
 								unsigned int r = ringbuffer_readline(&sock->txbuffer, buf, BUFFER_SIZE);
-								printf(">>> %s", buf);
 								buf[r] = 0;
+								printf(">>> %s", buf);
 								write(s->fd, buf, r);
 								sock->tokens--;
+								if (sock->tokens == 0) {
+									for (int i = 0; i < errorsockets->length; i++) {
+										if (((local_socket *) errorsockets->data[i])->type == SOCKTYPE_CLIENT)
+											readsockets = array_delete(readsockets, errorsockets->data[i]);
+									}
+								}
+							}
+							else if ((sock->tokens > 0) && (file != NULL) && (file->paused == 0)) {
+								if ((ringbuffer_canwrite(&file->rxbuffer) > 0) && (file->eof == 0)) {
+									int w = ringbuffer_writefromfd(&file->rxbuffer, file->socket.fd, BUFFER_SIZE);
+									if (w == 0)
+										file->eof = 1;
+								}
+								if (file->rxbuffer.nl > 0) {
+									int r = ringbuffer_readline(&file->rxbuffer, buf, BUFFER_SIZE);
+									buf[r] = 0;
+									printf(">>> %s", buf);
+									write(s->fd, buf, r);
+									sock->tokens--;
+								}
+								else if (file->eof) {
+									// file is completely printed
+									printf("File %s complete. Print time: \n", file->filename);
+									// TODO:close file
+								}
 							}
 							if ((ringbuffer_canread(&sock->txbuffer) == 0) || (sock->tokens == 0))
 								writesockets = array_delete(writesockets, sock);
