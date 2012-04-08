@@ -25,22 +25,29 @@
 #include	<fcntl.h>
 #include	<netdb.h>
 
+#define BUFFER_SIZE 1024
+
+#include	"array.h"
+#include	"ringbuffer.h"
+
+/****************************************************************************\
+*                                                                            *
+* Connection Defaults                                                        *
+*                                                                            *
+\****************************************************************************/
 
 #define	DEFAULT_PORT "/dev/arduino"
 #define	DEFAULT_BAUD 115200
 
 #define	DEFAULT_LISTEN_ADDR 0.0.0.0
-#define	DEFAULT_LISTEN_PORT 37654
+#define	DEFAULT_LISTEN_PORT 2560
 
+/****************************************************************************\
+*                                                                            *
+* Data Structures - Sockets                                                  *
+*                                                                            *
+\****************************************************************************/
 
-
-#define	BUFFER_SIZE 1024
-typedef struct {
-	unsigned int head;
-	unsigned int tail;
-	char data[1024];
-	unsigned int nl;
-} ringbuffer;
 
 #define SOCKTYPE_LOCAL 0
 typedef struct {
@@ -102,253 +109,11 @@ typedef struct {
 	char eof;
 } file_socket;
 
-typedef struct {
-	unsigned int length;
-	char * name;
-	void * data[];
-} array;
-
-
-void ringbuffer_init(ringbuffer *rb) {
-	rb->head = rb->tail = rb->nl = 0;
-}
-
-unsigned int ringbuffer_canread(ringbuffer *rb) {
-	return((rb->head - rb->tail) & (BUFFER_SIZE - 1));
-}
-
-unsigned int ringbuffer_canwrite(ringbuffer *rb) {
-	return((rb->tail - 1 - rb->head) & (BUFFER_SIZE - 1));
-}
-
-void ringbuffer_status(ringbuffer *rb) {
-	fprintf(stderr, "Ringbuffer %p:\n\thead: %d\n\ttail: %d\n\tfill: %d\n\twrit: %d\n", rb, rb->head, rb->tail, ringbuffer_canread(rb), ringbuffer_canwrite(rb));
-}
-
-unsigned int ringbuffer_read(ringbuffer *rb, char *buffer, unsigned int maxchars) {
-	if (maxchars > ringbuffer_canread(rb))
-		maxchars = ringbuffer_canread(rb);
-	for (unsigned int i = 0; i < maxchars; i++) {
-		buffer[i] = rb->data[rb->tail++];
-		rb->tail &= (BUFFER_SIZE - 1);
-		if ((buffer[i] == 10) && (rb->nl > 0))
-			rb->nl--;
-	}
-	return maxchars;
-}
-
-unsigned int ringbuffer_readtofd(ringbuffer *rb, int fd) {
-	unsigned int r;
-	if (rb->head > rb->tail) {
-		//write(STDERR_FILENO, "> ", 2);
-		//write(STDERR_FILENO, &rb->data[rb->tail], rb->head - rb->tail);
-		r = write(fd, &rb->data[rb->tail], rb->head - rb->tail);
-	}
-	else {
-		//write(STDERR_FILENO, "> ", 2);
-		//write(STDERR_FILENO, &rb->data[rb->tail], BUFFER_SIZE - rb->tail);
-		r = write(fd, &rb->data[rb->tail], BUFFER_SIZE - rb->tail);
-	}
-	//fprintf(stderr, "*** readtofd: %d bytes: tail = %d ->", r, rb->tail);
-	rb->tail += r;
-	rb->tail &= (BUFFER_SIZE - 1);
-	//fprintf(stderr, " %d\n", rb->tail);
-	return r;
-}
-
-unsigned int ringbuffer_readline(ringbuffer *rb, char *linebuffer, unsigned int maxchars) {
-	if (rb->nl == 0)
-		return 0;
-	if (maxchars > ringbuffer_canread(rb))
-		maxchars = ringbuffer_canread(rb);
-	unsigned int t = rb->tail;
-	for (unsigned int i = 0; i < maxchars; i++) {
-		linebuffer[i] = rb->data[t++];
-		t &= (BUFFER_SIZE - 1);
-		if (linebuffer[i] == 10) {
-			i++;
-			linebuffer[i] = 0;
-			rb->nl--;
-			rb->tail = t;
-			return i;
-		}
-	}
-	return maxchars;
-}
-
-void ringbuffer_scannl(ringbuffer *rb) {
-	rb->nl = 0;
-	//fprintf(stderr, "checking buffer.. ");
-	for (unsigned int i = rb->tail; i != (rb->head + 1); i = (i + 1) & (BUFFER_SIZE - 1)) {
-		//fprintf(stderr, "%d=0x%02X (%c), ", i, rb->data[i], rb->data[i]);
-		if (rb->data[i] == 10)
-			rb->nl++;
-	}
-	//fprintf(stderr, "\n");
-}
-
-unsigned int ringbuffer_writefromfd(ringbuffer *rb, int fd, unsigned int nchars) {
-	if (nchars > ringbuffer_canwrite(rb))
-		nchars = ringbuffer_canwrite(rb);
-
-	//fprintf(stderr, "writefromfd: nchars = %d\n", nchars);
-
-	unsigned int rmn = nchars;
-	unsigned int r, rcv, rcvtot;
-	rcvtot = 0;
-	while (rmn) {
-		//fprintf(stderr, "writefromfd: rmn = %d\n", rmn);
-		r = BUFFER_SIZE - rb->head;
-		if (r > rmn)
-			r = rmn;
-		//fprintf(stderr, "writefromfd: r = %d\n", r);
-		rcv = read(fd, &rb->data[rb->head], r);
-		rcvtot += rcv;
-		//fprintf(stderr, "writefromfd: rcv = %d, rcvtot = %d\n", rcv, rcvtot);
-		rb->head += rcv;
-		rb->head &= (BUFFER_SIZE - 1);
-		if (rcv < r) {
-			rmn -= r;
-			ringbuffer_scannl(rb);
-			return rcvtot;
-		}
-		rmn -= r;
-	}
-	ringbuffer_scannl(rb);
-	return rcvtot;
-}
-
-unsigned int ringbuffer_writefromsock(ringbuffer *rb, int fd, unsigned int nchars) {
-	if (nchars > ringbuffer_canwrite(rb))
-		nchars = ringbuffer_canwrite(rb);
-
-	//fprintf(stderr, "writefromfd: nchars = %d\n", nchars);
-
-	unsigned int rmn = nchars;
-	unsigned int r, rcv, rcvtot;
-	rcvtot = 0;
-	while (rmn) {
-		//fprintf(stderr, "writefromfd: rmn = %d\n", rmn);
-		r = BUFFER_SIZE - rb->head;
-		if (r > rmn)
-			r = rmn;
-		//fprintf(stderr, "writefromfd: r = %d\n", r);
-		rcv = recv(fd, &rb->data[rb->head], r, 0);
-		rcvtot += rcv;
-		//fprintf(stderr, "writefromfd: rcv = %d, rcvtot = %d\n", rcv, rcvtot);
-		rb->head += rcv;
-		rb->head &= (BUFFER_SIZE - 1);
-		if (rcv < r) {
-			rmn -= r;
-			ringbuffer_scannl(rb);
-			return rcvtot;
-		}
-		rmn -= r;
-	}
-	ringbuffer_scannl(rb);
-	return rcvtot;
-}
-
-unsigned int ringbuffer_write(ringbuffer *rb, char *buffer, unsigned int maxchars) {
-	if (maxchars > ringbuffer_canwrite(rb))
-		maxchars = ringbuffer_canwrite(rb);
-	for (unsigned int i = 0; i < maxchars; i++) {
-		rb->data[rb->head++] = buffer[i];
-		rb->head &= (BUFFER_SIZE - 1);
-		if (buffer[i] == 10)
-			rb->nl++;
-	}
-	return maxchars;
-}
-
-array* array_init(void) {
-	array * a = malloc(sizeof(array));
-	if (a == NULL) {
-		fprintf(stderr, "array_init: malloc failed: %s\n", strerror(errno));
-		exit(1);
-	}
-	a->length = 0;
-	return a;
-}
-
-array* array_push(array *a, void *element) {
-	//printf("push %s(%p): %p. %d->%d\n", a->name, a, element, a->length, a->length + 1);
-	a->length++;
-	a = realloc(a, sizeof(array) + (sizeof(void *) * a->length));
-	if (a == NULL) {
-		fprintf(stderr, "array_push: realloc failed: %s\n", strerror(errno));
-		exit(1);
-	}
-
-	a->data[a->length - 1] = element;
-
-	return a;
-}
-
-array* array_unshift(array *a, void *element) {
-	//printf("push %s(%p): %p. %d->%d\n", a->name, a, element, a->length, a->length + 1);
-	a->length++;
-	a = realloc(a, sizeof(array) + (sizeof(void *) * a->length));
-	if (a == NULL) {
-		fprintf(stderr, "array_push: realloc failed: %s\n", strerror(errno));
-		exit(1);
-	}
-
-	memmove(&a->data[1], &a->data[0], sizeof(void *) * a->length);
-
-	a->data[0] = element;
-
-	return a;
-}
-
-void* array_pop(array *a) {
-	if (a->length) {
-		void *r = a->data[(a->length - 1)];
-		a->length--;
-		a = realloc(a, sizeof(array) + sizeof(void *) * a->length);
-		if (a == NULL) {
-			fprintf(stderr, "array_pop: realloc failed: %s\n", strerror(errno));
-			exit(1);
-		}
-		return r;
-	}
-	return NULL;
-}
-
-void* array_shift(array *a) {
-	if (a->length) {
-		void *r = a->data[0];
-		a->length--;
-		memmove(&a->data[0], &a->data[1], sizeof(void *) * a->length);
-		a = realloc(a, sizeof(array) + sizeof(void *) * a->length);
-		if (a == NULL) {
-			fprintf(stderr, "array_shift: realloc failed: %s\n", strerror(errno));
-			exit(1);
-		}
-		return r;
-	}
-	return NULL;
-}
-
-int array_indexof(array *a, void *element) {
-	for (int i = 0; i < a->length; i++) {
-		if (a->data[i] == element) {
-			return i;
-		}
-	}
-	return -1;
-}
-
-array* array_delete(array *a, void *element) {
-	int i = array_indexof(a, element);
-	if (i >= 0) {
-		a->length--;
-		if (a->length > i)
-			memmove(&a->data[i], &a->data[(i + 1)], (a->length - i) * sizeof(void *));
-		return a = realloc(a, sizeof(array) + sizeof(void *) * a->length);
-	}
-	return a;
-}
+/****************************************************************************\
+*                                                                            *
+* Utility Functions                                                          *
+*                                                                            *
+\****************************************************************************/
 
 int sock2a(void *address, char *buffer, int length) {
 	void *addr;
@@ -478,6 +243,12 @@ speed_t baud2termios(int baud) {
 	}
 }
 
+/****************************************************************************\
+*                                                                            *
+* Printer Constructor                                                        *
+*                                                                            *
+\****************************************************************************/
+
 printer_socket * new_printer_socket(char * portname, int baud) {
 	printer_socket *s = malloc(sizeof(printer_socket));
 
@@ -514,6 +285,12 @@ printer_socket * new_printer_socket(char * portname, int baud) {
 
 	return s;
 }
+
+/****************************************************************************\
+*                                                                            *
+* Main                                                                       *
+*                                                                            *
+\****************************************************************************/
 
 int main(int argc, char **argv) {
 	char buf[1024];
@@ -589,8 +366,6 @@ int main(int argc, char **argv) {
 			exit(1);
 		}
 
-		void *addr;
-		int port;
 		if (rp->ai_family == AF_INET6) {
 			if (setsockopt(listensock->socket.fd, IPPROTO_IPV6, IPV6_V6ONLY, &yes, sizeof(int)) == -1) {
 				perror("setsockopt");
@@ -710,8 +485,12 @@ int main(int argc, char **argv) {
 									if (sock->lastmsgsock->fd > 2)
 										printf("< %s", line);
 									int m = snprintf(buf, BUFFER_SIZE, "< %s", line);
-									if (sock->lastmsgsock->type == SOCKTYPE_LOCAL)
-										write(sock->lastmsgsock->fd, buf, m);
+									if (sock->lastmsgsock->type == SOCKTYPE_LOCAL) {
+										int i = 0;
+										do {
+											i += write(sock->lastmsgsock->fd, &buf[i], m - i);
+										} while (i < m);
+									}
 									else if (sock->lastmsgsock->type == SOCKTYPE_CLIENT) {
 										//printf("client type\n");
 										client_socket *cs = (client_socket *) sock->lastmsgsock;
@@ -770,12 +549,12 @@ int main(int argc, char **argv) {
 					case SOCKTYPE_LISTEN:
 						{
 							printf("got connection ");
-							listen_socket *sock = (listen_socket *) s;
+							//listen_socket *sock = (listen_socket *) s;
 							client_socket * newcs = malloc(sizeof(client_socket));
 							newcs->socket.type = SOCKTYPE_CLIENT;
 							ringbuffer_init(&newcs->rxbuffer);
 							ringbuffer_init(&newcs->txbuffer);
-							int socksize = sizeof(struct sockaddr_storage);
+							unsigned int socksize = sizeof(struct sockaddr_storage);
 							newcs->socket.fd = accept(s->fd, (struct sockaddr *) &newcs->addr, &socksize);
 							sock2a(&newcs->addr, buf, BUFFER_SIZE);
 							printf("from %s (%d) sock %p\n", buf, newcs->socket.fd, newcs);
@@ -809,7 +588,10 @@ int main(int argc, char **argv) {
 								unsigned int r = ringbuffer_readline(&sock->txbuffer, buf, BUFFER_SIZE);
 								buf[r] = 0;
 								printf(">>> %s", buf);
-								write(s->fd, buf, r);
+								int i = 0;
+								do {
+									i += write(s->fd, &buf[i], r - i);
+								} while (i < r);
 								sock->tokens--;
 								if (sock->tokens == 0) {
 									for (int i = 0; i < errorsockets->length; i++) {
@@ -828,7 +610,10 @@ int main(int argc, char **argv) {
 									int r = ringbuffer_readline(&file->rxbuffer, buf, BUFFER_SIZE);
 									buf[r] = 0;
 									printf(">>> %s", buf);
-									write(s->fd, buf, r);
+									int i = 0;
+									do {
+										i += write(s->fd, &buf[i], r - i);
+									} while (i < r);
 									sock->tokens--;
 								}
 								else if (file->eof) {
@@ -865,4 +650,3 @@ int main(int argc, char **argv) {
 
 	return 0;
 }
-
