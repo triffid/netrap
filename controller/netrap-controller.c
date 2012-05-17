@@ -49,16 +49,15 @@
 *                                                                            *
 \****************************************************************************/
 
+#define	SOCKET_BASE int type; int fd;
 
 #define SOCKTYPE_LOCAL 0
 typedef struct {
-	int     type;
-	int     fd;
+	SOCKET_BASE
 } local_socket;
 
 typedef struct {
-	int         type;
-	int         fd;
+	SOCKET_BASE
 
 	ringbuffer  rxbuffer;
 	ringbuffer  txbuffer;
@@ -66,7 +65,7 @@ typedef struct {
 
 #define	SOCKTYPE_PRINTER 1
 typedef struct {
-	local_socket socket;
+	SOCKET_BASE
 
 	ringbuffer  rxbuffer;
 	ringbuffer	txbuffer;
@@ -85,24 +84,28 @@ typedef struct {
 
 #define SOCKTYPE_CLIENT 2
 typedef struct {
-	local_socket socket;
+	SOCKET_BASE
 
-	ringbuffer rxbuffer;
+	ringbuffer rxbuffer; // for GCODE only
 	ringbuffer txbuffer;
+
+	ringbuffer inbuffer; // real incoming buffer
 
 	struct sockaddr_storage addr;
 } client_socket;
 
 #define	SOCKTYPE_LISTEN 3
 typedef struct {
-	local_socket socket;
+	SOCKET_BASE
 
 	struct sockaddr_storage addr;
+
+	uint16_t port;
 } listen_socket;
 
 #define SOCKTYPE_FILE 4
 typedef struct {
-	local_socket socket;
+	SOCKET_BASE
 
 	ringbuffer rxbuffer;
 
@@ -117,6 +120,16 @@ typedef struct {
 	char paused;
 	char eof;
 } file_socket;
+
+#define SOCKTYPE_HTTP 5
+typedef struct {
+	SOCKET_BASE
+
+	ringbuffer rxbuffer;
+	ringbuffer txbuffer;
+
+	struct sockaddr_storage addr;
+} http_socket;
 
 /****************************************************************************\
 *                                                                            *
@@ -133,6 +146,19 @@ array *      errorsockets;
 * Utility Functions                                                          *
 *                                                                            *
 \****************************************************************************/
+
+uint16_t sockport(void *address) {
+	uint16_t port;
+	if (((struct sockaddr *) address)->sa_family == AF_INET) {
+		struct sockaddr_in *s = (struct sockaddr_in *) address;
+		return s->sin_port;
+	}
+	else if (((struct sockaddr *) address)->sa_family == AF_INET6) {
+		struct sockaddr_in6 *s = (struct sockaddr_in6 *) address;
+		return s->sin6_port;
+	}
+	return 0;
+}
 
 int sock2a(void *address, char *buffer, int length) {
 	void *addr;
@@ -271,15 +297,15 @@ speed_t baud2termios(int baud) {
 printer_socket * new_printer_socket(char * portname, int baud) {
 	printer_socket *s = malloc(sizeof(printer_socket));
 
-	s->socket.type = SOCKTYPE_PRINTER;
+	s->type = SOCKTYPE_PRINTER;
 
-	s->socket.fd = open(portname, O_RDWR | O_NOCTTY);
-	if (s->socket.fd == -1) {
+	s->fd = open(portname, O_RDWR | O_NOCTTY);
+	if (s->fd == -1) {
 		fprintf(stderr, "error opening %s: %s\n", portname, strerror(errno));
 		exit(1);
 	}
 
-	if (tcgetattr(s->socket.fd, &s->termios) == -1) {
+	if (tcgetattr(s->fd, &s->termios) == -1) {
 		fprintf(stderr, "error getting attributes for %s: %s\n", portname, strerror(errno));
 		exit(1);
 	}
@@ -291,7 +317,7 @@ printer_socket * new_printer_socket(char * portname, int baud) {
 		exit(1);
 	}
 
-	if (tcsetattr(s->socket.fd, TCSANOW, &s->termios) == -1) {
+	if (tcsetattr(s->fd, TCSANOW, &s->termios) == -1) {
 		fprintf(stderr, "error setting attributes for %s: %s\n", portname, strerror(errno));
 		exit(1);
 	}
@@ -310,22 +336,89 @@ printer_socket * new_printer_socket(char * portname, int baud) {
 
 client_socket * new_client_socket(listen_socket * listener) {
 	client_socket * newcs = malloc(sizeof(client_socket));
-	newcs->socket.type = SOCKTYPE_CLIENT;
+	newcs->type = SOCKTYPE_CLIENT;
 	ringbuffer_init(&newcs->rxbuffer);
 	ringbuffer_init(&newcs->txbuffer);
 
 	unsigned int socksize = sizeof(struct sockaddr_storage);
-	newcs->socket.fd = accept(listener->socket.fd, (struct sockaddr *) &newcs->addr, &socksize);
+	newcs->fd = accept(listener->fd, (struct sockaddr *) &newcs->addr, &socksize);
 
 	char *buf = malloc(BUFFER_SIZE);
 	sock2a(&newcs->addr, buf, BUFFER_SIZE);
-	printf("New connection from %s (%d/%p)\n", buf, newcs->socket.fd, newcs);
+	printf("New CLIENT connection from %s (%d/%p)\n", buf, newcs->fd, newcs);
 	free(buf);
 
 	readsockets = array_push(readsockets, newcs);
 	errorsockets = array_push(errorsockets, newcs);
 
 	return newcs;
+}
+
+// NOTE: this function can create multiple listen sockets, but will only return the last one!
+listen_socket * new_listen_socket(uint16_t listen_port, uint8_t protocol) {
+	struct addrinfo hints;
+	struct addrinfo *result, *rp;
+	int s;
+	char service[7];
+	memset(&hints, 0, sizeof(struct addrinfo));
+	hints.ai_family = AF_UNSPEC;
+	hints.ai_socktype = SOCK_STREAM;
+	hints.ai_flags = AI_PASSIVE;
+	hints.ai_protocol = 0;
+	hints.ai_canonname = NULL;
+	hints.ai_addr = NULL;
+	hints.ai_next = NULL;
+
+	snprintf(service, 7, "%d", listen_port);
+	if ((s = getaddrinfo(NULL, service, &hints, &result)) != 0) {
+		fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(s));
+		exit(1);
+	}
+
+	listen_socket *listensock;
+	for (rp = result; rp != NULL; rp = rp->ai_next) {
+		listensock = malloc(sizeof(listen_socket));
+		listensock->type = SOCKTYPE_LISTEN;
+
+		memcpy(&listensock->addr, rp->ai_addr, rp->ai_addrlen);
+
+		listensock->fd = socket(rp->ai_family, SOCK_STREAM, IPPROTO_TCP);
+
+		int yes = 1;
+		if (setsockopt(listensock->fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1) {
+			perror("setsockopt");
+			exit(1);
+		}
+
+		if (rp->ai_family == AF_INET6) {
+			if (setsockopt(listensock->fd, IPPROTO_IPV6, IPV6_V6ONLY, &yes, sizeof(int)) == -1) {
+				perror("setsockopt");
+				exit(1);
+			}
+		}
+
+		if (bind(listensock->fd, rp->ai_addr, rp->ai_addrlen) == -1) {
+			perror("bind");
+			exit(1);
+		}
+
+		if (listen(listensock->fd, SOMAXCONN) == -1) {
+			perror("listen");
+			exit(1);
+		}
+
+		sock2a(rp->ai_addr, buf, BUFFER_SIZE);
+		fprintf(stderr, "Listening on %s\n", buf);
+
+		listensock->port = sockport(rp->ai_addr);
+		listensock->protocol = protocol;
+
+		readsockets = array_push(readsockets, listensock);
+		errorsockets = array_push(errorsockets, listensock);
+	}
+
+	freeaddrinfo(result);
+	return listensock;
 }
 
 file_socket * new_file_socket(char *filename) {
@@ -336,10 +429,10 @@ file_socket * new_file_socket(char *filename) {
 	}
 
 	file_socket * s = malloc(sizeof(file_socket));
-	s->socket.type = SOCKTYPE_FILE;
+	s->type = SOCKTYPE_FILE;
 
-	s->socket.fd = open(filename, O_RDONLY | O_NOCTTY);
-	if (s->socket.fd == -1) {
+	s->fd = open(filename, O_RDONLY | O_NOCTTY);
+	if (s->fd == -1) {
 		printf("Error opening %s: %s\n", filename, strerror(errno));
 		free(s);
 		return NULL;
@@ -360,6 +453,28 @@ file_socket * new_file_socket(char *filename) {
 
 	return s;
 }
+
+http_socket * new_http_socket(listen_socket * listener) {
+	http_socket * newcs = malloc(sizeof(http_socket));
+	newhs->type = SOCKTYPE_CLIENT;
+	ringbuffer_init(&newhs->rxbuffer);
+	ringbuffer_init(&newhs->txbuffer);
+
+	unsigned int socksize = sizeof(struct sockaddr_storage);
+	newhs->fd = accept(listener->fd, (struct sockaddr *) &newhs->addr, &socksize);
+
+	char *buf = malloc(BUFFER_SIZE);
+	sock2a(&newhs->addr, buf, BUFFER_SIZE);
+	printf("New HTTP connection from %s (%d/%p)\n", buf, newhs->fd, newhs);
+	free(buf);
+
+	readsockets = array_push(readsockets, newhs);
+	errorsockets = array_push(errorsockets, newhs);
+
+	return newhs;
+}
+
+
 
 /****************************************************************************\
 *                                                                            *
@@ -411,8 +526,15 @@ void broadcast(char *line) {
 	}
 }
 
+#define LINETYPE_GCODE      0
+#define LINETYPE_SIMPLECMD  1
+#define LINETYPE_HTTP       2
+unsigned int detect_line_type(char *line) {
+	return LINETYPE_GCODE;
+}
+
 void parse_line(char *line) {
-	
+
 }
 
 /****************************************************************************\
@@ -457,65 +579,8 @@ int main(int argc, char **argv) {
 	*                                                                       *
 	\***********************************************************************/
 
-	uint16_t listen_port = DEFAULT_LISTEN_PORT;
-	struct addrinfo hints;
-	struct addrinfo *result, *rp;
-	int s;
-	char service[7];
-	memset(&hints, 0, sizeof(struct addrinfo));
-	hints.ai_family = AF_UNSPEC;
-	hints.ai_socktype = SOCK_STREAM;
-	hints.ai_flags = AI_PASSIVE;
-	hints.ai_protocol = 0;
-	hints.ai_canonname = NULL;
-	hints.ai_addr = NULL;
-	hints.ai_next = NULL;
-
-	snprintf(service, 7, "%d", listen_port);
-	if ((s = getaddrinfo(NULL, service, &hints, &result)) != 0) {
-		fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(s));
-		exit(1);
-	}
-
-	for (rp = result; rp != NULL; rp = rp->ai_next) {
-		listen_socket *listensock = malloc(sizeof(listen_socket));
-		listensock->socket.type = SOCKTYPE_LISTEN;
-
-		memcpy(&listensock->addr, rp->ai_addr, rp->ai_addrlen);
-
-		listensock->socket.fd = socket(rp->ai_family, SOCK_STREAM, IPPROTO_TCP);
-
-		int yes = 1;
-		if (setsockopt(listensock->socket.fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1) {
-			perror("setsockopt");
-			exit(1);
-		}
-
-		if (rp->ai_family == AF_INET6) {
-			if (setsockopt(listensock->socket.fd, IPPROTO_IPV6, IPV6_V6ONLY, &yes, sizeof(int)) == -1) {
-				perror("setsockopt");
-				exit(1);
-			}
-		}
-
-		if (bind(listensock->socket.fd, rp->ai_addr, rp->ai_addrlen) == -1) {
-			perror("bind");
-			exit(1);
-		}
-
-		if (listen(listensock->socket.fd, SOMAXCONN) == -1) {
-			perror("listen");
-			exit(1);
-		}
-
-		sock2a(rp->ai_addr, buf, BUFFER_SIZE);
-		fprintf(stderr, "Listening on %s\n", buf);
-
-		readsockets = array_push(readsockets, listensock);
-		errorsockets = array_push(errorsockets, listensock);
-	}
-
-	freeaddrinfo(result);
+	new_listen_socket(DEFAULT_LISTEN_PORT, SOCKTYPE_CLIENT);
+	new_listen_socket(DEFAULT_LISTEN_PORT + 1, SOCKTYPE_HTTP);
 
 	/***********************************************************************\
 	*                                                                       *
@@ -530,21 +595,28 @@ int main(int argc, char **argv) {
 		FD_ZERO(writeselect);
 		FD_ZERO(errorselect);
 		for (int i = 0; i < readsockets->length; i++) {
-			int fd = ((local_socket *) readsockets->data[i])->fd;
+			local_socket *ls = ((local_socket *) readsockets->data[i]);
+			int fd = ls->fd;
 			//printf("check read %d\n", ((local_socket *) readsockets->data[i])->fd);
-			FD_SET(fd, readselect);
-			if (fd >= maxfd)
-				maxfd = fd + 1;
+			if ((ls->type == SOCKTYPE_PRINTER) || (printer->tokens > 0)) {
+				FD_SET(fd, readselect);
+				if (fd >= maxfd)
+					maxfd = fd + 1;
+			}
 		}
 		for (int i = 0; i < writesockets->length; i++) {
-			int fd = ((local_socket *) writesockets->data[i])->fd;
+			local_socket *ls = ((local_socket *) writesockets->data[i]);
+			int fd = ls->fd;
 			//printf("check write %d\n", ((local_socket *) writesockets->data[i])->fd);
-			FD_SET(fd, writeselect);
-			if (fd >= maxfd)
-				maxfd = fd + 1;
+			if ((ls->type != SOCKTYPE_PRINTER) || (printer->tokens > 0)) {
+				FD_SET(fd, writeselect);
+				if (fd >= maxfd)
+					maxfd = fd + 1;
+			}
 		}
 		for (int i = 0; i < errorsockets->length; i++) {
-			int fd = ((local_socket *) errorsockets->data[i])->fd;
+			local_socket *ls = ((local_socket *) errorsockets->data[i]);
+			int fd = ls->fd;
 			//printf("check error %d\n", ((local_socket *) errorsockets->data[i])->fd);
 			FD_SET(((local_socket *) errorsockets->data[i])->fd, errorselect);
 			if (fd >= maxfd)
@@ -584,124 +656,136 @@ int main(int argc, char **argv) {
 			if (FD_ISSET(s->fd, readselect)) {
 				//printf("read %d (type %d)\n", s->fd, s->type);
 				switch (s->type) {
-					case SOCKTYPE_LOCAL:
-						{
-							buffer_socket *sock = (buffer_socket *) s;
-							unsigned int r = ringbuffer_writefromfd(&sock->rxbuffer, s->fd, ringbuffer_canwrite(&sock->rxbuffer));
-							if (r == 0) {
-								printf("EOF on stdin, exiting...\n");
-								exit(0);
-							}
-							else {
-								printer->lastmsgsock = s;
-								//while (sock->rxbuffer.nl > 0) {
-								//	ringbuffer_readline(&sock->rxbuffer, buf, BUFFER_SIZE);
-								//	ringbuffer_write(&printer->txbuffer, buf, r);
-								//}
-								if (printer->tokens > 0)
-									if (array_indexof(writesockets, printer) == -1)
-										writesockets = array_push(writesockets, printer);
-							}
+					case SOCKTYPE_LOCAL: {
+						buffer_socket *sock = (buffer_socket *) s;
+						unsigned int r = ringbuffer_writefromfd(&sock->rxbuffer, s->fd, ringbuffer_canwrite(&sock->rxbuffer));
+						if (r == 0) {
+							printf("EOF on stdin, exiting...\n");
+							exit(0);
 						}
 						break;
-					case SOCKTYPE_CLIENT:
-						{
-							client_socket *sock = (client_socket *) s;
-							unsigned int r = ringbuffer_writefromfd(&sock->rxbuffer, s->fd, ringbuffer_canwrite(&sock->rxbuffer));
-							//printf("writefromfd %p %d %d got %d nl %d\n", &sock->rxbuffer, s->fd, ringbuffer_canwrite(&sock->rxbuffer), r, sock->rxbuffer.nl);
-							if (r == 0) {
-								sock2a(&sock->addr, buf, BUFFER_SIZE);
-								printf("client %s disconnected\n", buf);
-								close(sock->socket.fd);
-								readsockets = array_delete(readsockets, sock);
-								writesockets = array_delete(writesockets, sock);
-								errorsockets = array_delete(errorsockets, sock);
-								free(sock);
-								sock = NULL;
-							}
-							else if (sock->rxbuffer.nl > 0 && printer->tokens > 0) {
-								printer->lastmsgsock = s;
-								//while (sock->rxbuffer.nl > 0) {
-								//	ringbuffer_readline(&sock->rxbuffer, buf, BUFFER_SIZE);
-								//		char paddr[256];
-								//		sock2a(&sock->addr, paddr, 256);
-								//		printf("from %s (%d): %s", paddr, sock->socket.fd, buf);
-								//	ringbuffer_write(&printer->txbuffer, buf, r);
-								//}
-								if (printer->tokens > 0)
-									if (array_indexof(writesockets, printer) == -1)
-										writesockets = array_push(writesockets, printer);
-							}
+					}
+					case SOCKTYPE_CLIENT: {
+						client_socket *sock = (client_socket *) s;
+						unsigned int r = ringbuffer_writefromfd(&sock->inbuffer, s->fd, ringbuffer_canwrite(&sock->inbuffer));
+						//printf("writefromfd %p %d %d got %d nl %d\n", &sock->rxbuffer, s->fd, ringbuffer_canwrite(&sock->rxbuffer), r, sock->rxbuffer.nl);
+						if (r == 0) {
+							sock2a(&sock->addr, buf, BUFFER_SIZE);
+							printf("client %s disconnected\n", buf);
+							close(sock->fd);
+							readsockets = array_delete(readsockets, sock);
+							writesockets = array_delete(writesockets, sock);
+							errorsockets = array_delete(errorsockets, sock);
+							free(sock);
+							sock = NULL;
 						}
-						break;
-					case SOCKTYPE_PRINTER:
-						{
-							//printf("can read printer\n");
-							printer_socket *sock = (printer_socket *) s;
-							unsigned int r = ringbuffer_writefromfd(&sock->rxbuffer, s->fd, BUFFER_SIZE);
-							if (r == 0) {
-								//printf(" %d bytes: printer disconnected, trying to reconnect...\n", r);
-								close(s->fd);
-								readsockets = array_delete(readsockets, sock);
-								writesockets = array_delete(writesockets, sock);
-								errorsockets = array_delete(errorsockets, sock);
-								free(sock);
-								sock = NULL;
-								sock = new_printer_socket(printer_port, printer_baud);
-								readsockets = array_push(readsockets, sock);
-								errorsockets = array_push(errorsockets, sock);
-							}
-							else {
-								//printf(" %d bytes, %d newlines", r, sock->rxbuffer.nl);
-								while (sock->rxbuffer.nl > 0) {
-									char line[BUFFER_SIZE];
-									int r = ringbuffer_readline(&sock->rxbuffer, line, BUFFER_SIZE);
-									if (sock->lastmsgsock->fd > 2)
-										printf("< %s", line);
-									int m = snprintf(buf, BUFFER_SIZE, "< %s", line);
-									if (sock->lastmsgsock->type == SOCKTYPE_LOCAL) {
-										int i = 0;
-										do {
-											i += write(sock->lastmsgsock->fd, &buf[i], m - i);
-										} while (i < m);
-									}
-									else if (sock->lastmsgsock->type == SOCKTYPE_CLIENT) {
-										//printf("client type\n");
-										client_socket *cs = (client_socket *) sock->lastmsgsock;
-										ringbuffer_write(&cs->txbuffer, line, r);
-										if (array_indexof(writesockets, cs) == -1) {
-											writesockets = array_push(writesockets, cs);
-											//printf("pushed %p/%d to writesockets\n", cs, cs->socket.fd);
-										}
-									}
-									if (strncmp(line, "ok", 2) == 0) {
-										//fprintf(stderr, "got token!");
-										if (sock->tokens < sock->maxtoken)
-											sock->tokens++;
-										for (int i = 0; i < errorsockets->length; i++) {
-											if (((local_socket *) errorsockets->data[i])->type == SOCKTYPE_CLIENT)
-												readsockets = array_push(readsockets, errorsockets->data[i]);
-										}
-										if (file != NULL)
-											writesockets = array_push(writesockets, sock);
-										//fprintf(stderr, " tokens: %d\n", sock->tokens);
-									}
-									else {
-										//fprintf(stderr, "no token\n");
-									}
+						else if (sock->inbuffer.nl > 0) {
+							char linebuffer[256];
+							while (ringbuffer_peekline(&sock->inbuffer, linebuffer, sizeof(linebuffer))) {
+								switch (detect_line_type(linebuffer)) {
+									case LINETYPE_GCODE: {
+										unsigned int i = ringbuffer_readline(&sock->rxbuffer, linebuffer, sizeof(linebuffer));
+										ringbuffer_write(&sock->rxbuffer, linebuffer, i);
+										break;
+									};
+									case LINETYPE_SIMPLECMD: {
+										unsigned int i = ringbuffer_readline(&sock->rxbuffer, linebuffer, sizeof(linebuffer));
+										parse_line(linebuffer);
+										break;
+									};
 								}
 							}
 						}
 						break;
-					case SOCKTYPE_LISTEN:
-						{
-							new_client_socket((listen_socket *) s);
+					}
+					case SOCKTYPE_PRINTER: {
+						//printf("can read printer\n");
+						printer_socket *sock = (printer_socket *) s;
+						unsigned int r = ringbuffer_writefromfd(&sock->rxbuffer, s->fd, BUFFER_SIZE);
+						if (r == 0) {
+							//printf(" %d bytes: printer disconnected, trying to reconnect...\n", r);
+							close(s->fd);
+							readsockets = array_delete(readsockets, sock);
+							writesockets = array_delete(writesockets, sock);
+							errorsockets = array_delete(errorsockets, sock);
+							free(sock);
+							sock = NULL;
+							sock = new_printer_socket(printer_port, printer_baud);
+							readsockets = array_push(readsockets, sock);
+							errorsockets = array_push(errorsockets, sock);
+						}
+						else {
+							//printf(" %d bytes, %d newlines", r, sock->rxbuffer.nl);
+							while (sock->rxbuffer.nl > 0) {
+								char line[BUFFER_SIZE];
+								int r = ringbuffer_readline(&sock->rxbuffer, line, BUFFER_SIZE);
+								if (sock->lastmsgsock->fd > 2)
+									printf("< %s", line);
+								int m = snprintf(buf, BUFFER_SIZE, "< %s", line);
+								if (sock->lastmsgsock->type == SOCKTYPE_LOCAL) {
+									int i = 0;
+									do {
+										i += write(sock->lastmsgsock->fd, &buf[i], m - i);
+									} while (i < m);
+								}
+								else if (sock->lastmsgsock->type == SOCKTYPE_CLIENT) {
+									//printf("client type\n");
+									client_socket *cs = (client_socket *) sock->lastmsgsock;
+									ringbuffer_write(&cs->txbuffer, line, r);
+									if (array_indexof(writesockets, cs) == -1) {
+										writesockets = array_push(writesockets, cs);
+										//printf("pushed %p/%d to writesockets\n", cs, cs->socket.fd);
+									}
+								}
+								if (strncmp(line, "ok", 2) == 0) {
+									//fprintf(stderr, "got token!");
+									if (sock->tokens < sock->maxtoken)
+										sock->tokens++;
+									for (int i = 0; i < errorsockets->length; i++) {
+										if (((local_socket *) errorsockets->data[i])->type == SOCKTYPE_CLIENT)
+											readsockets = array_push(readsockets, errorsockets->data[i]);
+									}
+									if (file != NULL)
+										writesockets = array_push(writesockets, sock);
+									//fprintf(stderr, " tokens: %d\n", sock->tokens);
+								}
+								else {
+									//fprintf(stderr, "no token\n");
+								}
+							}
 						}
 						break;
-					case SOCKTYPE_FILE:
-						{
+					}
+					case SOCKTYPE_LISTEN: {
+						listen_socket *ls = (listen_socket *) s;
+						if (ls->protocol == SOCKTYPE_HTTP) {
+							new_http_socket(ls);
+						}
+						else if (ls->protocol == SOCKTYPE_CLIENT) {
+							new_client_socket(ls);
 						}
 						break;
+					}
+					case SOCKTYPE_FILE: {
+						break;
+					}
+					case SOCKTYPE_HTTP: {
+						http_socket *sock = (http_socket *) s;
+						unsigned int r = ringbuffer_writefromfd(&sock->rxbuffer, s->fd, ringbuffer_canwrite(&sock->rxbuffer));
+						if (r == 0) {
+							sock2a(&sock->addr, buf, BUFFER_SIZE);
+							printf("client %s disconnected\n", buf);
+							close(sock->fd);
+							readsockets = array_delete(readsockets, sock);
+							writesockets = array_delete(writesockets, sock);
+							errorsockets = array_delete(errorsockets, sock);
+							free(sock);
+							sock = NULL;
+						}
+						else {
+						}
+						break;
+					}
 				} /* switch s->type */
 			} /* if FD_ISSET fd, readselect */
 		} /* for readsockets */
@@ -718,41 +802,62 @@ int main(int argc, char **argv) {
 				switch (s->type) {
 					case SOCKTYPE_LOCAL:
 					case SOCKTYPE_CLIENT:
-						{
-							//printf("write client socket\n");
-							buffer_socket *sock = (buffer_socket *) s;
-							if (ringbuffer_canread(&sock->txbuffer) > 0) {
-								//printf("readtofd %d %p: %d\n", s->fd, &sock->txbuffer,
-									ringbuffer_readtofd(&sock->txbuffer, s->fd);
-								//);
-							}
-							if (ringbuffer_canread(&sock->txbuffer) == 0) {
-								//printf("client txbuffer empty\n");
-								writesockets = array_delete(writesockets, s);
-							}
+					case SOCKTYPE_HTTP: {
+						//printf("write client socket\n");
+						buffer_socket *sock = (buffer_socket *) s;
+						if (ringbuffer_canread(&sock->txbuffer) > 0) {
+							//printf("readtofd %d %p: %d\n", s->fd, &sock->txbuffer,
+								ringbuffer_readtofd(&sock->txbuffer, s->fd);
+							//);
+						}
+						if (ringbuffer_canread(&sock->txbuffer) == 0) {
+							//printf("client txbuffer empty\n");
+							writesockets = array_delete(writesockets, s);
 						}
 						break;
-					case SOCKTYPE_PRINTER:
-						{
-							printer_socket *sock = (printer_socket *) s;
+					}
+					case SOCKTYPE_PRINTER: {
+						printer_socket *sock = (printer_socket *) s;
+						//printf("write: nl: %d\n", sock->txbuffer.nl);
+						if (sock->rxbuffer.nl == 0) {
+							int i = (sock->lastmsgindex + 1) % errorsockets->length;
+							for (int j = 0; j <= errorsockets->length; j++) {
+								buffer_socket * x = errorsockets->data[i];
+								if (x->type == SOCKTYPE_LOCAL || x->type == SOCKTYPE_CLIENT || x->type == SOCKTYPE_FILE) {
+									int r = ringbuffer_readline(&x->rxbuffer, buf, BUFFER_SIZE);
+									ringbuffer_write(&printer->txbuffer, buf, r);
+									sock->lastmsgsock = (local_socket *) x;
+									sock->lastmsgindex = i;
+									break;
+								}
+								i = (i + 1) % errorsockets->length;
+							}
+						}
+						if (sock->txbuffer.nl > 0) {
 							//printf("write: nl: %d\n", sock->txbuffer.nl);
-							if (sock->rxbuffer.nl == 0) {
-								int i = (sock->lastmsgindex + 1) % errorsockets->length;
-								for (int j = 0; j <= errorsockets->length; j++) {
-									buffer_socket * x = errorsockets->data[i];
-									if (x->type == SOCKTYPE_LOCAL || x->type == SOCKTYPE_CLIENT || x->type == SOCKTYPE_FILE) {
-										int r = ringbuffer_readline(&x->rxbuffer, buf, BUFFER_SIZE);
-										ringbuffer_write(&printer->txbuffer, buf, r);
-										sock->lastmsgsock = (local_socket *) x;
-										sock->lastmsgindex = i;
-										break;
-									}
-									i = (i + 1) % errorsockets->length;
+							unsigned int r = ringbuffer_readline(&sock->txbuffer, buf, BUFFER_SIZE);
+							buf[r] = 0;
+							printf(">>> %s", buf);
+							int i = 0;
+							do {
+								i += write(s->fd, &buf[i], r - i);
+							} while (i < r);
+							sock->tokens--;
+							if (sock->tokens == 0) {
+								for (int i = 0; i < errorsockets->length; i++) {
+									if (((local_socket *) errorsockets->data[i])->type == SOCKTYPE_CLIENT)
+										readsockets = array_delete(readsockets, errorsockets->data[i]);
 								}
 							}
-							if (sock->txbuffer.nl > 0) {
-								//printf("write: nl: %d\n", sock->txbuffer.nl);
-								unsigned int r = ringbuffer_readline(&sock->txbuffer, buf, BUFFER_SIZE);
+						}
+						else if ((sock->tokens > 0) && (file != NULL) && (file->paused == 0)) {
+							if ((ringbuffer_canwrite(&file->rxbuffer) > 0) && (file->eof == 0)) {
+								int w = ringbuffer_writefromfd(&file->rxbuffer, file->fd, BUFFER_SIZE);
+								if (w == 0)
+									file->eof = 1;
+							}
+							if (file->rxbuffer.nl > 0) {
+								int r = ringbuffer_readline(&file->rxbuffer, buf, BUFFER_SIZE);
 								buf[r] = 0;
 								printf(">>> %s", buf);
 								int i = 0;
@@ -760,39 +865,17 @@ int main(int argc, char **argv) {
 									i += write(s->fd, &buf[i], r - i);
 								} while (i < r);
 								sock->tokens--;
-								if (sock->tokens == 0) {
-									for (int i = 0; i < errorsockets->length; i++) {
-										if (((local_socket *) errorsockets->data[i])->type == SOCKTYPE_CLIENT)
-											readsockets = array_delete(readsockets, errorsockets->data[i]);
-									}
-								}
 							}
-							else if ((sock->tokens > 0) && (file != NULL) && (file->paused == 0)) {
-								if ((ringbuffer_canwrite(&file->rxbuffer) > 0) && (file->eof == 0)) {
-									int w = ringbuffer_writefromfd(&file->rxbuffer, file->socket.fd, BUFFER_SIZE);
-									if (w == 0)
-										file->eof = 1;
-								}
-								if (file->rxbuffer.nl > 0) {
-									int r = ringbuffer_readline(&file->rxbuffer, buf, BUFFER_SIZE);
-									buf[r] = 0;
-									printf(">>> %s", buf);
-									int i = 0;
-									do {
-										i += write(s->fd, &buf[i], r - i);
-									} while (i < r);
-									sock->tokens--;
-								}
-								else if (file->eof) {
-									// file is completely printed
-									printf("File %s complete. Print time: \n", file->filename);
-									// TODO:close file
-								}
+							else if (file->eof) {
+								// file is completely printed
+								printf("File %s complete. Print time: \n", file->filename);
+								// TODO:close file
 							}
-							if ((ringbuffer_canread(&sock->txbuffer) == 0) || (sock->tokens == 0))
-								writesockets = array_delete(writesockets, sock);
 						}
+						if ((ringbuffer_canread(&sock->txbuffer) == 0) || (sock->tokens == 0))
+							writesockets = array_delete(writesockets, sock);
 						break;
+					}
 				} /* switch s->type */
 			} /* if FD_ISSET fd, writeselect */
 		} /* for writesockets */
