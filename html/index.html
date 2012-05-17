@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<title>NetRap</title>
+		<script src="js/prototype.js"></script>
+		<script src="js/netrap.js"></script>
+		<script src="js/boundValue.js"></script>
+		<script src="js/jog.js"></script>
+		<link rel="stylesheet" type="text/css" href="css/style.css"></style>
+	</head>
+	<body>
+		<div class="toolbar">
+			<div><span>Printer:</span><select name="printer"><option value="0">A1001NCz</option></select><input type="button" id="refreshPrinters" value="R" /></div>
+			<div><input type="checkbox" id="monitor" /><span label="monitor">Monitor Printer</span></div>
+			<div><input type="button" id="getpos" value="Get Position" /></div>
+			<div><input type="button" id="clearlog" value="Clear Log" /></div>
+		</div>
+
+		<br class="clear" />
+
+		<table>
+		<tr><td>
+			<canvas id="jogXYCanvas" width="247" height="242" style="background-image: url('images/control_xy.png'); background-repeat: none; float: left;"></canvas>
+		</td><td>
+			<canvas id="jogZCanvas" width="59" height="242" style="background-image: url('images/control_z.png'); background-repeat: none; float: left;"></canvas>
+		</td><td>
+			<canvas id="jogECanvas" width="59" height="242" style="background-image: url('images/control_e.png'); background-repeat: none; float: left;"></canvas>
+		</td><td>
+			<textarea id="log" rows="16" cols="40" readonly="readonly"></textarea><br />
+			<form onsubmit="return false;">
+				<input type="text" id="send" style="width: 80%; float: left;" />
+				<input type="submit" id="sendBtn" value="Send" />
+			</form>
+		</td></tr></table>
+
+		<script defer="defer">
+			document.observe('dom:loaded', function() {
+				var netrap = new netrapUplink('netrap-json');
+
+				var jogXY = new jogXY($('jogXYCanvas'));
+// 				var jogZ = new jogZE($('jogZCanvas'));
+// 				var jogE = new jogZE($('jogECanvas'));
+				jogXY.draw();
+// 				jogZ.draw();
+// 				jogE.draw();
+
+				function callback_jogEvent(e) {
+// 					alert(e);
+					netrap.jog(e.X, e.Y, e.Z, e.E);
+				};
+				jogXY.observe('jog', callback_jogEvent);
+// 				jogZ.observe('jog', callback_jogEvent);
+// 				jogE.observe('jog', callback_jogEvent);
+
+				refreshPrinters.onclick = function() {
+					netrap.refreshPrinterList();
+				};
+				getpos.onclick = function() {
+					netrap.refreshPosition();
+				};
+				clearlog.onclick = function() {
+					log.textContent = "";
+				};
+				monitor.onchange = function() {
+					if (this.checked) {
+						this.timer = setInterval(function() {
+							netrap.refreshTemperatureList();
+						}, 5000);
+					}
+					else {
+						if (this.timer) {
+							clearTimeout(this.timer);
+							this.timer = undefined;
+						}
+					}
+				};
+				sendBtn.onclick = function() {
+					if (send.value)
+						netrap.sendCmd(send.value);
+					send.value = "";
+				};
+			});
+		</script>
+	</body>
+</html>
