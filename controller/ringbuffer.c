@@ -53,7 +53,7 @@ unsigned int ringbuffer_readtofd(ringbuffer *rb, int fd) {
 	return r;
 }
 
-unsigned int ringbuffer_readline(ringbuffer *rb, char *linebuffer, unsigned int maxchars) {
+unsigned int ringbuffer_peekline(ringbuffer *rb, char *linebuffer, unsigned int maxchars) {
 	if (rb->nl == 0)
 		return 0;
 	if (maxchars > ringbuffer_canread(rb))
@@ -65,12 +65,19 @@ unsigned int ringbuffer_readline(ringbuffer *rb, char *linebuffer, unsigned int 
 		if (linebuffer[i] == 10) {
 			i++;
 			linebuffer[i] = 0;
-			rb->nl--;
-			rb->tail = t;
 			return i;
 		}
 	}
 	return maxchars;
+}
+
+unsigned int ringbuffer_readline(ringbuffer *rb, char *linebuffer, unsigned int maxchars) {
+	unsigned int i = ringbuffer_peekline(rb, linebuffer, maxchars);
+	if (i > 0) {
+		rb->nl--;
+		rb->tail = i;
+	}
+	return i;
 }
 
 void ringbuffer_scannl(ringbuffer *rb) {
