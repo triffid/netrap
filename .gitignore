@@ -1,0 +1,6 @@
+*~
+*.elf
+*.log
+*.gcode
+*.strace
+
