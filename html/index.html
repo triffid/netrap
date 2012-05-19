@@ -29,7 +29,7 @@
 				<textarea id="log" rows="16" cols="40" readonly="readonly"></textarea><br />
 				<form id="manual_entry">
 					<input type="text" id="send" style="width: 80%; float: left;" />
-					<input type="submit" id="sendBtn" value="Send" />
+					<input type="button" id="sendBtn" value="Send" />
 				</form>
 			</td></tr>
 		</table>
@@ -51,22 +51,26 @@
 				jogE.draw();
 				
 				function callback_jogEvent(e) {
-					netrap.jog(e.jogX, e.jogY, e.jogZ, e.jogE);
+// 					alert(e.gcode.join("\n"));
+					for (var i = 0; i < e.gcode.length; i++) {
+						netrap.queueCmd(e.gcode[i]);
+					}
+					netrap.queueCommit();
 				};
-				jogXY.observe('jog', callback_jogEvent);
-				jogZ.observe('jog', callback_jogEvent);
-				jogE.observe('jog', callback_jogEvent);
+				jogXY.observe('click', callback_jogEvent);
+				jogZ.observe('click', callback_jogEvent);
+				jogE.observe('click', callback_jogEvent);
 
-				refreshPrinters.onclick = function() {
+				$('refreshPrinters').observe('click', function() {
 					netrap.refreshPrinterList();
-				};
-				getpos.onclick = function() {
+				});
+				$('getpos').observe('click', function() {
 					netrap.refreshPosition();
-				};
-				clearlog.onclick = function() {
+				});
+				$('clearlog').observe('click', function() {
 					log.textContent = "";
-				};
-				monitor.onchange = function() {
+				});
+				$('monitor').observe('change', function() {
 					if (this.checked) {
 						this.timer = setInterval(function() {
 							netrap.refreshTemperatureList();
@@ -78,13 +82,16 @@
 							this.timer = undefined;
 						}
 					}
-				};
-				manual_entry.onsubmit = function() {
-					if (send.value)
+				});
+				$('sendBtn').observe('click', function() {
+					var send = $('send');
+					if (send.value) {
 						netrap.sendCmd(send.value);
+						$('log').value += "> " + send.value + "\n";
+					}
 					send.value = "";
 					return false;
-				};
+				});
 			});
 		</script>
 	</body>
