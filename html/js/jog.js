@@ -1,5 +1,3 @@
-// TODO: inherit from generic 'jog' object to reduce code copying
-
 Math.sign = function (num) {
 	if (num > 0) {
 		return 1;
@@ -22,20 +20,6 @@ function pointInPolygon(p, x, y) {
 	}
 	return c;
 }
-
-// from http://www.coolpage.com/developer/javascript/Correct%20OOP%20for%20Javascript.html
-// Object.prototype.Inherits = function (parent) {
-// 	if (arguments.length > 1) {
-// 		parent.apply(this, Array.prototype.slice.call(arguments, 1));
-// 	} else {
-// 		parent.call(this);
-// 	}
-// };
-// 
-// Function.prototype.Inherits = function (Parent) {
-// 	this.prototype = new Parent();
-// 	this.prototype.constructor = this;
-// };
 
 /*
  * Now for some actual objects
@@ -271,14 +255,40 @@ function JogXY(canvas) {
 		this.buttons.push(new ButtonXY('Y', -d));
 	}
 	var Xhome = new Button('H', 'X');
-	Xhome.points.push(new Point(11, 8));
-	Xhome.points.push(new Point(58, 8));
-	Xhome.points.push(new Point(58, 17));
-	Xhome.points.push(new Point(37, 34));
-	Xhome.points.push(new Point(20, 55));
-	Xhome.points.push(new Point(11, 55));
+	Xhome.points.push(new Point(11     , 8));
+	Xhome.points.push(new Point(11 + 47, 8));
+	Xhome.points.push(new Point(11 + 47, 8 +  9));
+	Xhome.points.push(new Point(11 + 26, 8 + 26));
+	Xhome.points.push(new Point(11 +  9, 8 + 47));
+	Xhome.points.push(new Point(11     , 8 + 47));
 	this.buttons.push(Xhome);
 	
+	var Yhome = new Button('H', 'Y');
+	Yhome.points.push(new Point(235     , 8));
+	Yhome.points.push(new Point(235 - 47, 8));
+	Yhome.points.push(new Point(235 - 47, 8 +  9));
+	Yhome.points.push(new Point(235 - 26, 8 + 26));
+	Yhome.points.push(new Point(235 -  9, 8 + 47));
+	Yhome.points.push(new Point(235     , 8 + 47));
+	this.buttons.push(Yhome);
+
+	var Zhome = new Button('H', 'Z');
+	Zhome.points.push(new Point(236     , 232));
+	Zhome.points.push(new Point(236 - 47, 232));
+	Zhome.points.push(new Point(236 - 47, 232 -  9));
+	Zhome.points.push(new Point(236 - 26, 232 - 26));
+	Zhome.points.push(new Point(236 -  9, 232 - 47));
+	Zhome.points.push(new Point(236     , 232 - 47));
+	this.buttons.push(Zhome);
+	
+	var Allhome = new Button('H', 'A');
+	Allhome.points.push(new Point(11     , 232));
+	Allhome.points.push(new Point(11 + 47, 232));
+	Allhome.points.push(new Point(11 + 47, 232 -  9));
+	Allhome.points.push(new Point(11 + 26, 232 - 26));
+	Allhome.points.push(new Point(11 +  9, 232 - 47));
+	Allhome.points.push(new Point(11     , 232 - 47));
+	this.buttons.push(Allhome);
 }
 
 /*
