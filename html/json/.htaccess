@@ -1,0 +1,6 @@
+<FilesMatch ".">
+	SetHandler perl-script
+	PerlResponseHandler ModPerl::Registry
+	Options +ExecCGI
+	PerlSendHeader on
+</FilesMatch>

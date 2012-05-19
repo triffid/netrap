@@ -4,7 +4,7 @@
 		<title>NetRap</title>
 		<script src="js/prototype.js"></script>
 		<script src="js/netrap.js"></script>
-		<script src="js/boundValue.js"></script>
+		<script src="js/boundvalue.js"></script>
 		<script src="js/jog.js"></script>
 		<link rel="stylesheet" type="text/css" href="css/style.css"></style>
 	</head>
@@ -19,38 +19,43 @@
 		<br class="clear" />
 
 		<table>
-		<tr><td>
-			<canvas id="jogXYCanvas" width="247" height="242" style="background-image: url('images/control_xy.png'); background-repeat: none; float: left;"></canvas>
-		</td><td>
-			<canvas id="jogZCanvas" width="59" height="242" style="background-image: url('images/control_z.png'); background-repeat: none; float: left;"></canvas>
-		</td><td>
-			<canvas id="jogECanvas" width="59" height="242" style="background-image: url('images/control_e.png'); background-repeat: none; float: left;"></canvas>
-		</td><td>
-			<textarea id="log" rows="16" cols="40" readonly="readonly"></textarea><br />
-			<form onsubmit="return false;">
-				<input type="text" id="send" style="width: 80%; float: left;" />
-				<input type="submit" id="sendBtn" value="Send" />
-			</form>
-		</td></tr></table>
+			<tr><td>
+				<canvas id="jogXYCanvas" width="247" height="242" style="width: 247px; height: 242px; background-image: url('images/control_xy.png'); background-repeat: none; float:left;"></canvas>
+				</td><td>
+				<canvas id="jogZCanvas" width="59" height="242" style="width: 59px; height: 242px; background-image: url('images/control_z.png'); background-repeat: none; float:left;"></canvas>
+			</td><td>
+				<canvas id="jogECanvas" width="59" height="242" style="width: 59px; height: 242px; background-image: url('images/control_e.png'); background-repeat: none; float:left;"></canvas>
+			</td><td>
+				<textarea id="log" rows="16" cols="40" readonly="readonly"></textarea><br />
+				<form id="manual_entry">
+					<input type="text" id="send" style="width: 80%; float: left;" />
+					<input type="submit" id="sendBtn" value="Send" />
+				</form>
+			</td></tr>
+		</table>
 
-		<script defer="defer">
+		<script type="text/javascript">
 			document.observe('dom:loaded', function() {
 				var netrap = new netrapUplink('netrap-json');
 
-				var jogXY = new jogXY($('jogXYCanvas'));
-// 				var jogZ = new jogZE($('jogZCanvas'));
-// 				var jogE = new jogZE($('jogECanvas'));
+				try {
+					var jogXY = new JogXY($('jogXYCanvas'));
+					var jogZ = new JogZ($('jogZCanvas'));
+					var jogE = new JogE($('jogECanvas'));
+				} catch (e) {
+					alert(e);
+				}
+				
 				jogXY.draw();
-// 				jogZ.draw();
-// 				jogE.draw();
-
+				jogZ.draw();
+				jogE.draw();
+				
 				function callback_jogEvent(e) {
-// 					alert(e);
-					netrap.jog(e.X, e.Y, e.Z, e.E);
+					netrap.jog(e.jogX, e.jogY, e.jogZ, e.jogE);
 				};
 				jogXY.observe('jog', callback_jogEvent);
-// 				jogZ.observe('jog', callback_jogEvent);
-// 				jogE.observe('jog', callback_jogEvent);
+				jogZ.observe('jog', callback_jogEvent);
+				jogE.observe('jog', callback_jogEvent);
 
 				refreshPrinters.onclick = function() {
 					netrap.refreshPrinterList();
@@ -74,10 +79,11 @@
 						}
 					}
 				};
-				sendBtn.onclick = function() {
+				manual_entry.onsubmit = function() {
 					if (send.value)
 						netrap.sendCmd(send.value);
 					send.value = "";
+					return false;
 				};
 			});
 		</script>

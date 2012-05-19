@@ -1,0 +1,26 @@
+#!/usr/bin/perl
+
+use strict;
+use IO::Socket::INET;
+
+print "Content-type: application/json\n\n";
+
+my $netrap = new IO::Socket::INET(Proto    => 'tcp',
+                               PeerAddr => '192.168.1.13',
+                               PeerPort => '2560');
+
+if (! defined $netrap) {
+	print '{ "status": "failure: ' . $@ . '" }';
+	exit(0);
+}
+
+my $result = "";
+
+while (<>) {
+	print $netrap $_;
+	print stderr $_;
+	$result .= $_;
+}
+$netrap->close();
+
+print "{ \"status\": \"success\" }\n";

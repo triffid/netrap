@@ -1,31 +1,107 @@
 // TODO: inherit from generic 'jog' object to reduce code copying
 
-function jogXY(canvas) {
-	var self = this;
+Math.sign = function (num) {
+	if (num > 0) {
+		return 1;
+	}
+	if (num < 0) {
+		return -1;
+	}
+	return 0;
+};
 
+// from http://www.webmasterworld.com/javascript/3551991.htm
+function pointInPolygon(p, x, y) {
+	var npol = p.length, i, j, c = 0;
+	for (i = 0, j = npol - 1; i < npol; j = i++) {
+		if ((((p[i].y <= y) && (y < p[j].y)) ||
+			((p[j].y <= y) && (y < p[i].y))) &&
+			(x < (p[j].x - p[i].x) * (y - p[i].y) / (p[j].y - p[i].y) + p[i].x)) {
+			c = !c;
+		}
+	}
+	return c;
+}
+
+// from http://www.coolpage.com/developer/javascript/Correct%20OOP%20for%20Javascript.html
+// Object.prototype.Inherits = function (parent) {
+// 	if (arguments.length > 1) {
+// 		parent.apply(this, Array.prototype.slice.call(arguments, 1));
+// 	} else {
+// 		parent.call(this);
+// 	}
+// };
+// 
+// Function.prototype.Inherits = function (Parent) {
+// 	this.prototype = new Parent();
+// 	this.prototype.constructor = this;
+// };
+
+/*
+ * Now for some actual objects
+ */
+
+function Point(x, y) {
+	var self = this;
+	this.x = x;
+	this.y = y;
+}
+
+function Button(axis, length) {
+	var self = this;
+	this.axis = axis;
+	this.length = length;
+
+	this.points = [];
+}
+
+Button.prototype = {
+	check: function(x, y) {
+		return pointInPolygon(this.points, x, y);
+	},
+	toString: function() {
+		return this.axis + this.length;
+	},
+	highlight: function(context) {
+		var i;
+		context.save();
+		context.lineWidth = 2;
+		context.strokeStyle = "rgba(255, 255, 64, 1)";
+		context.fillStyle = "rgba(255, 255, 64, 0.25)";
+		context.beginPath();
+		context.moveTo(this.points[this.points.length - 1].x, this.points[this.points.length - 1].y);
+		for (i = 0; i < this.points.length; i++) {
+			context.lineTo(this.points[i].x, this.points[i].y);
+		}
+		context.stroke();
+		context.fill();
+		context.restore();
+	}
+};
+
+function Jog(canvas) {
+	var self = this;
 	this.eventListeners = {
-		jog: [],
-		jogX: [],
-		jogY: [],
-		jogZ: [],
-		jogE: [],
+		jog: []
 	};
-	this.fireEvent = function(name, dataObject) {
+	this.fireEvent = function(name, e) {
 		if (self.eventListeners[name]) {
 			if (self.eventListeners[name].length > 0) {
-				var e = new Event(name);
-				for (var a in dataObject) {
-					e[a] = dataObject[a];
-				}
-				for (var f = 0; f < self.eventListeners[name].length; f++) {
+				var a, f;
+				for (f = 0; f < self.eventListeners[name].length; f++) {
 					self.eventListeners[name][f](e);
 				}
 			}
 		}
 	};
-
+	
+	this.buttons = [];
 	this.canvas = canvas;
 
+	if (!canvas) {
+		return this;
+	}
+	
 	this.context = canvas.getContext('2d');
 	this.context.circle = function(x, y, radius) {
 		this.save();
@@ -42,279 +118,255 @@ function jogXY(canvas) {
 		this.stroke();
 		this.restore();
 	};
-
-	this.buttons = [];
-	function buttonXY(axis, length) {
-		var innerR;
-		var outerR;
-		var centerX = self.canvas.width * 0.5;
-		var centerY = self.canvas.height * 0.5;
-		var quadrant;
-		if (length == 0.1 || length == -0.1) {
-			innerR = 0;
-			outerR = 242 * 0.175;
-		}
-		if (length == 1   || length == -1  ) {
-			innerR = 242 * 0.175;
-			outerR = 242 * 0.28;
-		}
-		if (length == 10  || length == -10 ) {
-			innerR = 242 * 0.28;
-			outerR = 242 * 0.38;
-		}
-		if (length == 100 || length == -100) {
-			innerR = 242 * 0.38;
-			outerR = 242 * 0.465;
-		}
-
-		if (axis == 'X') {
-			quadrant = 1;
-		}
-		else if (axis == 'Y') {
-			quadrant = 0;
-		}
-		if (length < 0)
-			quadrant += 2;
-
-		this.axis = axis;
-		this.length = length;
-		this.quadrant = quadrant;
-		this.innerR = innerR;
-		this.outerR = outerR;
-
-		this.check = function(x, y) {
-			var cx = x - centerX;
-			var cy = y - centerY;
-			var r = Math.sqrt((cx * cx) + (cy * cy));
-			if (r <= innerR || r > outerR)
-				return false;
-			var a = Math.atan2(cx, cy) * 180 / Math.PI;
-			var q;
-			if (a >= 135 || a < -135)
-				q = 0;
-			if (a >= 45 && a < 135)
-				q = 1;
-			if (a >= -45 && a < 45)
-				q = 2;
-			if (a >= -135 && a < -45)
-				q = 3;
-			if (q != quadrant)
-				return false;
-// 			window.log.textContent = 'cx: ' + cx + '\ncy: ' + cy + '\nr: ' + r + '\na: ' + a + '\nq: ' + quadrant;
-			return true;
-		}
-		this.toString = function() {
-			return axis + length;
-		}
-		this.highlight = function() {
-			self.context.save();
-			self.context.lineWidth = 2;
-			self.context.strokeStyle = "rgba(255, 255, 64, 1)";
-			self.context.fillStyle = "rgba(255, 255, 64, 0.25)";
-			self.context.beginPath();
-			self.context.arc(centerX, centerY, outerR, (quadrant * 90 - 45) * Math.PI / 180, (quadrant * 90 - 135) * Math.PI / 180, true);
-			self.context.arc(centerX, centerY, innerR, (quadrant * 90 - 135) * Math.PI / 180, (quadrant * 90 - 45) * Math.PI / 180, false);
-			self.context.lineTo(centerX + outerR * Math.cos((quadrant * 90 - 45) * Math.PI / 180), centerY + outerR * Math.sin((quadrant * 90 - 45) * Math.PI / 180));
-			self.context.stroke();
-			self.context.fill();
-			self.context.restore();
-		}
-	}
-	for (var d = 0.1; d < 101; d *= 10) {
-		this.buttons.push(new buttonXY('X',  d));
-		this.buttons.push(new buttonXY('X', -d));
-		this.buttons.push(new buttonXY('Y',  d));
-		this.buttons.push(new buttonXY('Y', -d));
-	}
+	
 	this.canvas.onmousemove = function(e) {
+		var x = e.clientX - $(self.canvas).viewportOffset().left;
+		var y = e.clientY - $(self.canvas).viewportOffset().top;
+		var b;
+// 		$('log').textContent = 'x: ' + x + '\ny: ' + y;
 		self.draw();
-		for (var b = 0; b < self.buttons.length; b++) {
-			if (self.buttons[b].check(e.offsetX, e.offsetY)) {
+		for (b = 0; b < self.buttons.length; b++) {
+			if (self.buttons[b].check(x, y)) {
 				// TODO: highlight
-				self.buttons[b].highlight(self.canvas);
+				self.buttons[b].highlight(self.context);
 			}
 		}
-	}
+	};
 	this.canvas.onmouseup = function(e) {
-// 		alert(e);
-		for (var b = 0; b < self.buttons.length; b++) {
+		var x = e.clientX - $(self.canvas).viewportOffset().left;
+		var y = e.clientY - $(self.canvas).viewportOffset().top;
+		var b;
+// 		$('log').textContent = 'x: ' + x + '\ny: ' + y;
+		for (b = 0; b < self.buttons.length; b++) {
 			var button = self.buttons[b];
-			if (button.check(e.offsetX, e.offsetY)) {
-				var jogX = undefined;
-				var jogY = undefined;
+			if (button.check(x, y)) {
+				e.jogX = undefined;
+				e.jogY = undefined;
+				e.jogZ = undefined;
+				e.jogE = undefined;
 				if (button.axis == 'X') {
-					jogX = button.length;
-					self.fireEvent('jogX', { X: jogX, Y: undefined });
+					e.jogX = button.length;
+					self.fireEvent('jogX', e);
 				}
-				else {
-					jogY = button.length;
-					self.fireEvent('jogY', { X: undefined, Y: jogY });
+				if (button.axis == 'Y') {
+					e.jogY = button.length;
+					self.fireEvent('jogY', e);
 				}
-// 				alert(button);
-				self.fireEvent('jog', { X: jogX, Y: jogY });
+				if (button.axis == 'Z') {
+					e.jogZ = button.length;
+					self.fireEvent('jogZ', e);
+				}
+				if (button.axis == 'E') {
+					e.jogE = button.length;
+					self.fireEvent('jogE', e);
+				}
+				self.fireEvent('jog', e);
 			}
 		}
-	}
+	};
+	this.canvas.onmouseout = function(e) {
+		self.draw();
+	};
 }
 
-jogXY.prototype = {
+Jog.prototype = {
 	draw: function() {
 		var canvas = this.canvas;
 		var context = this.context;
-			context.clearRect(0, 0, canvas.width, canvas.height);
-		if (0) {
-			context.save();
-				var mr = (canvas.width < canvas.height)?canvas.width:canvas.height;
-				context.lineWidth = 1;
-				context.strokeStyle = "rgba(0,0,0,1)";
-				context.circle(canvas.width / 2, canvas.height / 2, mr * 0.465);
-				context.circle(canvas.width / 2, canvas.height / 2, mr * 0.38);
-				context.circle(canvas.width / 2, canvas.height / 2, mr * 0.28);
-				context.circle(canvas.width / 2, canvas.height / 2, mr * 0.175);
-				for (var r = 45; r < 360; r += 90) {
-					context.line(canvas.width / 2 + Math.sin(r * Math.PI / 180) * mr * 0.175, canvas.height / 2 + Math.cos(r * Math.PI / 180) * mr * 0.175,
-								canvas.width / 2 + Math.sin(r * Math.PI / 180) * mr * 0.46, canvas.height / 2 + Math.cos(r * Math.PI / 180) * mr * 0.46);
-				}
-			context.restore();
-		}
+		context.clearRect(0, 0, canvas.width, canvas.height);
 	},
 	observe: function(event, callback) {
 		if (this.eventListeners[event]) {
 			this.eventListeners[event].push(callback);
 		}
-	},
+	}
 };
 
 /*
-function jogZE(canvas, axis) {
-	var self = this;
+ * XY jog buttons
+ */
 
-	this.eventListeners = {
-		jog: [],
-		jogZ: [],
-		jogE: [],
-	};
-	this.fireEvent = function(name, dataObject) {
-		if (self.eventListeners[name]) {
-			if (self.eventListeners[name].length > 0) {
-				var e = new Event(name);
-				for (var a in dataObject) {
-					e[a] = dataObject[a];
-				}
-				for (var f = 0; f < self.eventListeners[name].length; f++) {
-					self.eventListeners[name][f](e);
-				}
-			}
-		}
-	};
+// ButtonXY.Inherits(Button);
+ButtonXY.prototype = new Button();
+ButtonXY.prototype.constructor = ButtonXY;
+function ButtonXY(axis, length, canvas) {
+	var self = this, a;
 
-	this.canvas = canvas;
-
-	this.context = canvas.getContext('2d');
-	this.context.circle = function(x, y, radius) {
-		this.save();
-		this.beginPath();
-		this.arc(x, y, radius, 0, Math.PI * 2, true);
-		this.stroke();
-		this.restore();
-	};
-	this.context.line = function(x1, y1, x2, y2) {
-		this.save();
-		this.beginPath();
-		this.moveTo(x1, y1);
-		this.lineTo(x2, y2);
-		this.stroke();
-		this.restore();
-	};
-
-	this.buttons = [];
-	function buttonZE(length) {
-		var x1 = 10;
-		var x2 = 50;
-		var y1 = 122 + log(length) / log(10) * 30 + 10;
-		var y2 = 122 + log(length) / log(10) * 30;
-		this.check = function(x, y) {
-// 			if (x < x1 || x >= x2)
-// 				return false;
-// 			if (y < y1 || y >= y2)
-// 				return false;
-// 			return true;
-		}
-		this.toString = function() {
-			return axis + length;
-		}
-		this.highlight = function() {
-			self.context.save();
-			self.context.lineWidth = 2;
-			self.context.strokeStyle = "rgba(255, 255, 64, 1)";
-			self.context.fillStyle = "rgba(255, 255, 64, 0.25)";
-			self.context.beginPath();
-// 			self.context.moveTo(x1, y1);
-// 			self.context.lineTo(x2, y1);
-// 			self.context.lineTo(x2, y2);
-// 			self.context.lineTo(x1, y2);
-// 			self.context.lineTo(x1, y1);
-			self.context.stroke();
-			self.context.fill();
-			self.context.restore();
-		}
+// 	this.Inherits(Button, axis, length);
+	Button.call(this, axis, length);
+	
+	var innerR;
+	var outerR;
+	var centerX = 247 * 0.5;
+	var centerY = 242 * 0.5;
+	var quadrant;
+	if (length == 0.1 || length == -0.1) {
+		innerR = 0;
+		outerR = 32.3;
 	}
-	for (var d = 0.1; d < 11; d *= 10) {
-		this.buttons.push(new buttonXY(axis,  d));
-		this.buttons.push(new buttonXY(axis, -d));
+	if (length == 1   || length == -1  ) {
+		innerR = 32.3;
+		outerR = 57.75;
 	}
-	this.canvas.onmousemove = function(e) {
-		self.draw();
-		for (var b = 0; b < self.buttons.length; b++) {
-			if (self.buttons[b].check(e.offsetX, e.offsetY)) {
-				// TODO: highlight
-				self.buttons[b].highlight(self.canvas);
-			}
-		}
+	if (length == 10  || length == -10 ) {
+		innerR = 57.76;
+		outerR = 82;
 	}
-	this.canvas.onmouseup = function(e) {
-		// 		alert(e);
-		for (var b = 0; b < self.buttons.length; b++) {
-			var button = self.buttons[b];
-			if (button.check(e.offsetX, e.offsetY)) {
-// 				var jogZ = undefined;
-// 				var jogE = undefined;
-// 				if (axis == 'Z')
-// 					jogZ = button.length;
-// 				else
-// 					jogE = button.length;
-// 				self.fireEvent('jog', { Z: jogZ, E: jogE });
-			}
+	if (length == 100 || length == -100) {
+		innerR = 82;
+		outerR = 103;
+	}
+	
+	if (axis == 'X') {
+		quadrant = 1;
+		centerX += 10;
+	}
+	else if (axis == 'Y') {
+		quadrant = 0;
+		centerY -= 10;
+	}
+	if (length < 0) {
+		if (quadrant == 1) {
+			centerX -= 20;
 		}
+		else if (quadrant == 0) {
+			centerY += 20;
+		}
+		quadrant += 2;
+	}
+	
+	this.innerR = innerR;
+	this.outerR = outerR;
+	this.quadrant = quadrant;
+
+//	self.context.arc(centerX, centerY, outerR, (quadrant * 90 - 45) * Math.PI / 180, (quadrant * 90 - 135) * Math.PI / 180, true);
+//	self.context.arc(centerX, centerY, innerR, (quadrant * 90 - 135) * Math.PI / 180, (quadrant * 90 - 45) * Math.PI / 180, false);
+//	self.context.lineTo(centerX + outerR * Math.cos((quadrant * 90 - 45) * Math.PI / 180), centerY + outerR * Math.sin((quadrant * 90 - 45) * Math.PI / 180));
+
+	for (a = 45; a <= 135; a += 5) {
+		this.points.push(new Point(centerX + innerR * Math.cos((quadrant * 90 - a) * Math.PI / 180), centerY + innerR * Math.sin((quadrant * 90 - a) * Math.PI / 180)));
+	}
+// 	this.points.push(new Point(centerX + innerR * Math.cos((quadrant * 90 - 90) * Math.PI / 180), centerY + innerR * Math.sin((quadrant * 90 - 90) * Math.PI / 180)));
+// 	this.points.push(new Point(centerX + innerR * Math.cos((quadrant * 90 - 135) * Math.PI / 180), centerY + innerR * Math.sin((quadrant * 90 - 135) * Math.PI / 180)));
+	for (a = 135; a >= 45; a -= 5) {
+		this.points.push(new Point(centerX + outerR * Math.cos((quadrant * 90 - a) * Math.PI / 180), centerY + outerR * Math.sin((quadrant * 90 - a) * Math.PI / 180)));
+	}
+// 	this.points.push(new Point(centerX + outerR * Math.cos((quadrant * 90 - 90) * Math.PI / 180), centerY + outerR * Math.sin((quadrant * 90 - 90) * Math.PI / 180)));
+// 	this.points.push(new Point(centerX + outerR * Math.cos((quadrant * 90 - 45) * Math.PI / 180), centerY + outerR * Math.sin((quadrant * 90 - 45) * Math.PI / 180)));
+}
+
+// JogXY.Inherits(Jog);
+JogXY.prototype = new Jog();
+JogXY.prototype.constructor = JogXY;
+function JogXY(canvas) {
+	var self = this, d;
+	
+// 	this.Inherits(Jog, canvas);
+	Jog.call(this, canvas);
+	
+	for (d = 0.1; d < 101; d *= 10) {
+		this.buttons.push(new ButtonXY('X',  d));
+		this.buttons.push(new ButtonXY('X', -d));
+		this.buttons.push(new ButtonXY('Y',  d));
+		this.buttons.push(new ButtonXY('Y', -d));
+	}
+	var Xhome = new Button('H', 'X');
+	Xhome.points.push(new Point(11, 8));
+	Xhome.points.push(new Point(58, 8));
+	Xhome.points.push(new Point(58, 17));
+	Xhome.points.push(new Point(37, 34));
+	Xhome.points.push(new Point(20, 55));
+	Xhome.points.push(new Point(11, 55));
+	this.buttons.push(Xhome);
+	
+}
+
+/*
+ * Z and E jog buttons
+ */
+
+// ButtonZE.Inherits(Button);
+ButtonZE.prototype = new Button();
+ButtonZE.prototype.constructor = ButtonZE;
+function ButtonZE(axis, length, x1, y1, x2, y2) {
+// 	this.Inherits(Button, axis, length);
+	Button.call(this, axis, length);
+	
+	this.points.push(new Point(x1, y1));
+	this.points.push(new Point(x2, y1));
+	this.points.push(new Point(x2, y2));
+	this.points.push(new Point(x1, y2));
+}
+
+// ButtonZ.Inherits(ButtonZE);
+ButtonZ.prototype = new ButtonZE();
+ButtonZ.prototype.constructor = ButtonZ;
+function ButtonZ(axis, length) {
+	var x1 = 12;
+	var x2 = 47;
+	var y = [200, 172, 148, 126, 111, 90, 65, 38];
+	var q = ((Math.round(Math.log(Math.abs(length)) / Math.log(10))) + 2) * Math.sign(length) + 3;
+
+	var y1 = y[q];
+	var y2 = y[q + 1];
+	
+// 	$('log').textContent += '[Z] d = ' + length + ' (10^' + q + ')\ty = ' + y1 + '-' + y2 + '\n';
+
+// 	this.Inherits(ButtonZE, axis, length, x1, y1, x2, y2);
+	ButtonZE.call(this, axis, length, x1, y1, x2, y2);
+}
+
+// JogZ.Inherits(Jog);
+JogZ.prototype = new Jog();
+JogZ.prototype.constructor = JogZ;
+function JogZ(canvas) {
+	var self = this, d;
+
+// 	this.Inherits(Jog, canvas);
+	Jog.call(this, canvas);
+	
+	this.axis = 'Z';
+	
+	for (d = 0.1; d < 11; d *= 10) {
+		this.buttons.push(new ButtonZ(this.axis, d));
+		this.buttons.push(new ButtonZ(this.axis, -d));
 	}
 }
 
-jogZE.prototype = {
-	draw: function() {
-		var canvas = this.canvas;
-		var context = this.context;
-			context.clearRect(0, 0, canvas.width, canvas.height);
+// ButtonE.Inherits(ButtonZE);
+ButtonE.prototype = new ButtonZE();
+function ButtonE(axis, length) {
+	var x1 = 12;
+	var x2 = 47;
+	var q = (((Math.abs(length) == 1)?0:((Math.abs(length) == 5)?1:2)) + 1) * Math.sign(length) + 3;
 
-			if (0) {
-				context.save();
-				var mr = (canvas.width < canvas.height)?canvas.width:canvas.height;
-				context.lineWidth = 1;
-				context.strokeStyle = "rgba(0,0,0,1)";
-				context.circle(canvas.width / 2, canvas.height / 2, mr * 0.465);
-				context.circle(canvas.width / 2, canvas.height / 2, mr * 0.38);
-				context.circle(canvas.width / 2, canvas.height / 2, mr * 0.28);
-				context.circle(canvas.width / 2, canvas.height / 2, mr * 0.175);
-				for (var r = 45; r < 360; r += 90) {
-					context.line(canvas.width / 2 + Math.sin(r * Math.PI / 180) * mr * 0.175, canvas.height / 2 + Math.cos(r * Math.PI / 180) * mr * 0.175,
-								 canvas.width / 2 + Math.sin(r * Math.PI / 180) * mr * 0.46, canvas.height / 2 + Math.cos(r * Math.PI / 180) * mr * 0.46);
-				}
-				context.restore();
-			}
-	},
-	observe: function(event, callback) {
-		if (this.eventListeners[event]) {
-			this.eventListeners[event].push(callback);
-		}
-	},
-};
-/**/
+	var y = [200, 172, 148, 126, 111, 90, 65, 38];
+	
+	var y1 = y[q];
+	var y2 = y[q + 1];
+	
+// 	var y1 = 119 + -1 * Math.sign(length) * q * 27;
+// 	var y2 = 119 + -1 * Math.sign(length) * q * 27 + 26;
+// 	$('log').textContent += '[E] d = ' + length + ':' + q + '\ty = ' + y1 + '-' + y2 + '\n';
+	
+// 	this.Inherits(ButtonZE, axis, length, x1, y1, x2, y2);
+	ButtonZE.call(this, axis, length, x1, y1, x2, y2);
+}
+
+// JogE.Inherits(Jog);
+JogE.prototype = new Jog();
+JogE.prototype.constructor = JogE;
+function JogE(canvas, axis) {
+	var self = this, d;
+	
+// 	this.Inherits(Jog, canvas);
+	Jog.call(this, canvas);
+	
+	this.axis = 'E';
+	
+	for (d = 0; d < 3; d++) {
+		var v = (d == 0)?1:((d == 1)?5:10);
+		this.buttons.push(new ButtonE(this.axis, v));
+		this.buttons.push(new ButtonE(this.axis, -v));
+	}
+}

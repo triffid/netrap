@@ -1,0 +1,5 @@
+#!/usr/bin/perl
+
+use strict;
+
+print "Content-type: application/json\n\n{ status: \"success\"; }";

@@ -47,8 +47,34 @@ netrapUplink.prototype = {
 	},
 	queueCommit: function() {
 		// TODO: json: send commands
-		alert(this.queue.join("\n"));
+// 		alert(this.queue.join("\n"));
+		try {
+		var r = new Ajax.Request("json/enqueue", {
+			parameters: this.queue.join("\n") + "\n",
+			onLoading: function (response) {
+// 				alert('AJAX: loading ' + response);
+			},
+			onLoaded: function (response) {
+// 				alert('AJAX: loaded ' + response);
+			},
+			onInteractive: function (response) {
+// 				alert('AJAX: interactive ' + response);
+			},
+			onSuccess: function (response) {
+				var json = response.responseText.evalJSON(true);
+// 				alert('AJAX: Success: ' + response);
+			},
+			onFailure: function (response) {
+// 				alert('AJAX: Failure: ' + response);
+			},
+		});
+		} catch (e) {
+			alert(e);
+		}
 		this.queue = [];
+	},
+	query: function() {
+		
 	},
 	refreshPrinterList: function() {
 		// TODO: json: listPrinters
