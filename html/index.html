@@ -29,7 +29,7 @@
 				<textarea id="log" rows="16" cols="40" readonly="readonly"></textarea><br />
 				<form id="manual_entry">
 					<input type="text" id="send" style="width: 80%; float: left;" />
-					<input type="button" id="sendBtn" value="Send" />
+					<input type="submit" id="sendBtn" value="Send" />
 				</form>
 			</td></tr>
 		</table>
@@ -84,15 +84,15 @@
 						}
 					}
 				});
-				$('sendBtn').observe('click', function() {
+				$('manual_entry').onsubmit = function() {
 					var send = $('send');
 					if (send.value) {
-						netrap.sendCmd(send.value);
+						netrap.query(send.value);
 						$('log').value += "> " + send.value + "\n";
 					}
 					send.value = "";
 					return false;
-				});
+				};
 			});
 		</script>
 	</body>
