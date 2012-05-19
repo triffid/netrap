@@ -87,8 +87,9 @@
 				$('manual_entry').onsubmit = function() {
 					var send = $('send');
 					if (send.value) {
-						netrap.query(send.value);
+						send.value = send.value.toUpperCase();
 						$('log').value += "> " + send.value + "\n";
+						netrap.query(send.value);
 					}
 					send.value = "";
 					return false;
