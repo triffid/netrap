@@ -65,10 +65,11 @@
 					netrap.refreshPrinterList();
 				});
 				$('getpos').observe('click', function() {
+					$('log').value += "> M114\n";
 					netrap.refreshPosition();
 				});
 				$('clearlog').observe('click', function() {
-					log.textContent = "";
+					$('log').value = "";
 				});
 				$('monitor').observe('change', function() {
 					if (this.checked) {

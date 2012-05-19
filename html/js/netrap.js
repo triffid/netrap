@@ -3,8 +3,8 @@ function netrapUplink(jsonuri) {
 
 	this.jsonuri = jsonuri;
 
-	this.printers = [ 'A1001NCz' ];
-	this.currentPrinter = undefined;
+	this.printers = [ 'default' ];
+	this.currentPrinter = 'default';
 	this.temperatures = {
 		hotend: 0,
 		bed: 0,
@@ -50,6 +50,7 @@ netrapUplink.prototype = {
 // 		alert(this.queue.join("\n"));
 		try {
 		var r = new Ajax.Request("json/enqueue", {
+			contentType: "text/plain",
 			parameters: this.queue.join("\n") + "\n",
 			onLoading: function (response) {
 // 				alert('AJAX: loading ' + response);
@@ -73,12 +74,51 @@ netrapUplink.prototype = {
 		}
 		this.queue = [];
 	},
-	query: function() {
+	query: function(query) {
+		var self = this;
+		var r = new Ajax.Request("json/query", {
+			contentType: "text/plain",
+			parameters: query + "\n",
+			onLoading: function (response) {
+				// 				alert('AJAX: loading ' + response);
+			},
+			onLoaded: function (response) {
+				// 				alert('AJAX: loaded ' + response);
+			},
+			onInteractive: function (response) {
+				// 				alert('AJAX: interactive ' + response);
+			},
+			onSuccess: function (response) {
+				try {
+					var json = response.responseText.evalJSON(true);
+				} catch (e) {
+					alert(e);
+				}
+				// 				alert('AJAX: Success: ' + response);
+				if (json) {
+					if (json.replies) {
+						var queries = response.request.body.split("\n");
+						for (var i = 0; i < json.replies.length; i++) {
+							$('log').value += "< " + json.replies[i] + "\n";
+							try {
+							self.parseReply(queries[i], json.replies[i]);
+							} catch (e) {
+								alert(e);
+							}
+						}
+					}
+				}
+			},
+			onFailure: function (response) {
+				// 				alert('AJAX: Failure: ' + response);
+			},
+		});
 		
 	},
 	refreshPrinterList: function() {
 		// TODO: json: listPrinters
-		this.sendCmd("TODO: listPrinters");
+// 		this.sendCmd("TODO: listPrinters");
+		this.query("listPrinters");
 	},
 	printerList: function() {
 		return this.printers;
@@ -96,7 +136,7 @@ netrapUplink.prototype = {
 		return this.temperatures;
 	},
 	refreshPosition: function() {
-		this.sendCmd('M114');
+		return this.query('M114');
 	},
 	position: function() {
 		return this.lastPos;
@@ -151,7 +191,7 @@ netrapUplink.prototype = {
 			this.fireEvent('positionUpdated', this.lastPos);
 		}
 	},
-	parseReply: function(reply) {
+	parseReply: function(query, reply) {
 		// check for printers
 		if (reply.printerList) {
 			this.printers = reply.printerList;
