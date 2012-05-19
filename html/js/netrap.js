@@ -130,13 +130,13 @@ netrapUplink.prototype = {
 		return this.currentPrinter;
 	},
 	refreshTemperatureList: function() {
-		this.sendCmd('M105');
+		this.query('M105');
 	},
 	temperatureList: function() {
 		return this.temperatures;
 	},
 	refreshPosition: function() {
-		return this.query('M114');
+		this.query('M114');
 	},
 	position: function() {
 		return this.lastPos;
