@@ -1,20 +1,39 @@
 #ifndef _PRINTER_HPP
 
-#include <sys/time.h>
+#include "socket.hpp"
+#include "queuemanager.hpp"
 
-class Printer {
+#include <string>
+#include <map>
+
+class Printer : public Socket {
 	Printer(void);
 	Printer(int fd);
 	Printer(char *port, int baud);
 	~Printer(void);
 public:
 	int open(char *port, int baud);
-	int open(int fd);
-	int opened();
-	void close();
+	
+	char **listCapabilities();
+	char *getCapability(char *capability);
+	void setCapability(char *capability, char *value);
+
+	char **listProperties();
+	char *getProperty(char *property);
+	void setProperty(char *property, char *value);
+
+	int write(string str);
+	int write(const char *str, int len);
+
+	int read(char *buffer, int buflen);
+protected:
+	void init();
+	QueueManager queuemanager;
+	map<string, string> properties;
+	map<string, string> capabilities;
 private:
-	int fd;
-	timeval opentime;
+// 	int fd;
+// 	timeval opentime;
 };
 
 #endif /* _PRINTER_HPP */

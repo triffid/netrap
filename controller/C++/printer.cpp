@@ -10,41 +10,51 @@ namespace C {
 }
 
 Printer::Printer() {
-	this->fd = -1;
+	Socket::_fd = -1;
+	init();
 }
 
 Printer::Printer(int fd) {
-	open(fd);
+	Socket::open(fd);
+	init();
 }
 
 Printer::Printer(char *port, int baud) {
 	open(port, baud);
+	init();
 }
 
 Printer::~Printer() {
 	close();
-}
-
-int Printer::open(int fd) {
-	Printer::fd = fd;
-	gettimeofday(&opentime, NULL);
-	return 1;
+	init();
 }
 
 int Printer::open(char *port, int baud) {
-	fd = open(port, O_RDWR | O_NOCTTY | O_NONBLOCK);
-	if (fd != -1) {
-		return open(fd);
+	_fd = open(port, O_RDWR | O_NOCTTY | O_NONBLOCK);
+	if (_fd != -1) {
+		return Socket::open(_fd);
 	}
-	return fd;
+	return _fd;
 }
 
-int Printer::opened() {
-	return fd;
+void Printer::init() {
+	queuemanager.setDrain(this);
+	write("M115\n", 5);
+	write("M114\n", 5);
+	write("M105\n", 5);
 }
 
-void Printer::close() {
-	if (fd != -1)
-		C::close(fd);
-	fd = -1;
+int Printer::write(string str) {
+	return write(str.c_str(), str.length());
+}
+
+int Printer::write(const char *str, int len) {
+	// TODO: extract target properties from outgoing commands
+	return Socket::write(str, len);
+}
+
+int Printer::read(char *buf, int buflen) {
+	int r = Socket::read(buf, buflen);
+	// TODO: extract properties from replies
+	return r;
 }
