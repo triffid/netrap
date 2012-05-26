@@ -32,8 +32,6 @@ protected:
 	map<string, string> properties;
 	map<string, string> capabilities;
 private:
-// 	int fd;
-// 	timeval opentime;
 };
 
 #endif /* _PRINTER_HPP */

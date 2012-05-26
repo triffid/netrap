@@ -38,6 +38,26 @@ int Printer::open(char *port, int baud) {
 }
 
 void Printer::init() {
+	capabilities["material"] = "PLA";
+	capabilities["diameter"] = "3.0";
+	capabilities["fan"] = "true";
+	
+	properties["position.X"] = "0";
+	properties["position.Y"] = "0";
+	properties["position.Z"] = "0";
+	properties["position.E"] = "0";
+	properties["position.F"] = "0";
+	properties["target.X"] = "0";
+	properties["target.Y"] = "0";
+	properties["target.Z"] = "0";
+	properties["target.E"] = "0";
+	properties["target.F"] = "0";
+	properties["temperature.hotend"] = "0";
+	properties["temperature.hotend.target"] = "0";
+	properties["temperature.bed"] = "0";
+	properties["temperature.bed.target"] = "0";
+	properties["fanspeed"] = "0";
+	
 	queuemanager.setDrain(this);
 	write("M115\n", 5);
 	write("M114\n", 5);
