@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstring>
 #include <list>
+#include <vector>
 
 #include	<sys/types.h>
 #include	<sys/socket.h>
@@ -14,6 +15,7 @@
 #include	<arpa/inet.h>
 
 #include "socket.hpp"
+#include "selector.hpp"
 
 class TCPListen {
 public:
@@ -25,10 +27,17 @@ public:
 	int waiting();
 	Socket *accept();
 	uint16_t port();
+
 protected:
-	std::list<int> listenfd;
+	std::vector<int> listenfd;
 	uint16_t listenport;
 	struct sockaddr_storage listenaddr;
+
+	Selector selector;
+
+	void onread(struct SelectFd *selected);
+	void onwrite(struct SelectFd *selected);
+	void onerror(struct SelectFd *selected);
 };
 
 #endif /* _TCPLISTEN_HPP */

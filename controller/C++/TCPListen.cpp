@@ -86,8 +86,10 @@ int TCPListen::listen(uint16_t port) {
 	for (rp = result; rp != NULL; rp = rp->ai_next) {
 // 		listensock = malloc(sizeof(listen_socket));
 // 		listensock->type = SOCKTYPE_LISTEN;
+		struct sockaddr_storage *addr = (struct sockaddr_storage *) malloc(rp->ai_addrlen);
 		
 		memcpy(&listenaddr, rp->ai_addr, rp->ai_addrlen);
+		memcpy(addr, rp->ai_addr, rp->ai_addrlen);
 		
 		int fd = socket(rp->ai_family, SOCK_STREAM, IPPROTO_TCP);
 		
@@ -119,6 +121,8 @@ int TCPListen::listen(uint16_t port) {
 		
 		listenport = sockport(rp->ai_addr);
 		listenfd.push_back(fd);
+
+		selector.add(fd, (FdCallback) &TCPListen::accept, NULL, NULL, (void *) this, (void *) addr);
 // 		listensock->protocol = protocol;
 		
 // 		readsockets = array_push(readsockets, listensock);
@@ -134,7 +138,7 @@ int TCPListen::waiting() {
 	fd_set testread;
 	struct timeval timeout = { 1, 0 };
 	FD_ZERO(&testread);
-	std::list<int>::iterator i;
+	std::vector<int>::iterator i;
 	int fdmax = 0;
 	for (i=listenfd.begin(); i != listenfd.end(); ++i) {
 		FD_SET(*i, &testread);
@@ -152,7 +156,7 @@ Socket *TCPListen::accept() {
 	struct timeval timeout = { 0, 0 };
 	FD_ZERO(&testread);
 	int fdmax = 0;
-	std::list<int>::iterator i;
+	std::vector<int>::iterator i;
 	for (i=listenfd.begin(); i != listenfd.end(); ++i) {
 		FD_SET(*i, &testread);
 		if (*i >= fdmax)
@@ -161,7 +165,7 @@ Socket *TCPListen::accept() {
 	
 	if (select(fdmax, &testread, NULL, NULL, &timeout)) {
 		int fd = -1;
-		std::list<int>::iterator i;
+		std::vector<int>::iterator i;
 		for (i=listenfd.begin(); i != listenfd.end(); ++i) {
 			if (FD_ISSET(*i, &testread)) {
 				fd = *i;
