@@ -22,7 +22,17 @@ TCPListen::TCPListen(uint16_t port) {
 TCPListen::~TCPListen() {
 }
 
-static uint16_t sockport(void *address) {
+int socksize(struct sockaddr *address) {
+	if (address->sa_family == AF_INET) {
+		return sizeof(struct sockaddr_in);
+	}
+	else if (address->sa_family == AF_INET6) {
+		return sizeof(struct sockaddr_in6);
+	}
+	return 0;
+}
+
+uint16_t sockport(void *address) {
 	if (((struct sockaddr *) address)->sa_family == AF_INET) {
 		struct sockaddr_in *s = (struct sockaddr_in *) address;
 		return s->sin_port;
@@ -34,7 +44,7 @@ static uint16_t sockport(void *address) {
 	return 0;
 }
 
-static int sock2a(void *address, char *buffer, int length) {
+int sock2a(void *address, char *buffer, int length) {
 	void *addr;
 	char buf[256];
 	uint16_t port;
@@ -122,7 +132,7 @@ int TCPListen::listen(uint16_t port) {
 		listenport = sockport(rp->ai_addr);
 		listenfd.push_back(fd);
 
-		selector.add(fd, (FdCallback) &TCPListen::accept, NULL, NULL, (void *) this, (void *) addr);
+		selector.add(fd, (FdCallback) &TCPListen::onread, NULL, NULL, (void *) this, (void *) addr);
 // 		listensock->protocol = protocol;
 		
 // 		readsockets = array_push(readsockets, listensock);
@@ -146,6 +156,20 @@ int TCPListen::waiting() {
 			fdmax = *i + 1;
 	}
 	return select(fdmax, &testread, NULL, &testread, &timeout);
+}
+
+void TCPListen::onread(struct SelectFd *selected) {
+	socklen_t size = socksize((struct sockaddr *) selected->data);
+	int newfd = C::caccept(selected->fd, (struct sockaddr *) selected->data, &size);
+
+	char buf[64];
+	sock2a(selected->data, buf, 64);
+	printf("New connection from %s (%d/", buf, newfd);
+	
+	Socket *newsock = new Socket();
+	newsock->open(newfd);
+
+	printf("%p)\n", newsock);
 }
 
 Socket *TCPListen::accept() {

@@ -3,8 +3,10 @@
 #include <sys/select.h>
 
 #include <cstdlib>
+#include <cstdio>
 
 std::list<struct SelectFd *> Selector::globalfdlist;
+std::list<struct SelectFd *>::iterator Selector::globalfditerator;
 
 Selector::Selector() {
 }
@@ -21,20 +23,22 @@ void Selector::wait() {
 	
 	int fdmax = 0;
 	struct SelectFd *sel;
-	std::list<struct SelectFd *>::iterator i;
-	for (i=fdlist.begin(); i != fdlist.end(); ++i) {
-		sel = *i;
-		if (sel->paused == 0) {
+// 	std::list<struct SelectFd *>::iterator i;
+	for (fditerator = fdlist.begin(); fditerator != fdlist.end(); ++fditerator) {
+		sel = *fditerator;
+		if (sel->poll & POLL_READ)
 			FD_SET(sel->fd, &testread);
+		if (sel->poll & POLL_WRITE)
 			FD_SET(sel->fd, &testwrite);
+		if (sel->poll && POLL_ERROR)
 			FD_SET(sel->fd, &testerror);
-			if (sel->fd >= fdmax)
-				fdmax = sel->fd + 1;
-		}
+		
+		if (sel->fd >= fdmax)
+			fdmax = sel->fd + 1;
 	}
 	if (select(fdmax, &testread, &testwrite, &testerror, NULL)) {
-		for (i=fdlist.begin(); i != fdlist.end(); ++i) {
-			sel = *i;
+		for (fditerator = fdlist.begin(); fditerator != fdlist.end(); ++fditerator) {
+			sel = *fditerator;
 			if (FD_ISSET(sel->fd, &testread)) {
 				sel->onread(sel->callbackObj, sel);
 			}
@@ -56,20 +60,21 @@ void Selector::poll() {
 	FD_ZERO(&testerror);
 	int fdmax = 0;
 	struct SelectFd *sel;
-	std::list<struct SelectFd *>::iterator i;
-	for (i=fdlist.begin(); i != fdlist.end(); ++i) {
-		sel = *i;
-		if (sel->paused == 0) {
+// 	std::list<struct SelectFd *>::iterator i;
+	for (fditerator = fdlist.begin(); fditerator != fdlist.end(); ++fditerator) {
+		sel = *fditerator;
+		if (sel->poll & POLL_READ)
 			FD_SET(sel->fd, &testread);
+		if (sel->poll & POLL_WRITE)
 			FD_SET(sel->fd, &testwrite);
+		if (sel->poll & POLL_ERROR)
 			FD_SET(sel->fd, &testerror);
-			if (sel->fd >= fdmax)
-				fdmax = sel->fd + 1;
-		}
+		if (sel->fd >= fdmax)
+			fdmax = sel->fd + 1;
 	}
 	if (select(fdmax, &testread, &testwrite, &testerror, &timeout)) {
-		for (i=fdlist.begin(); i != fdlist.end(); ++i) {
-			sel = *i;
+		for (fditerator = fdlist.begin(); fditerator != fdlist.end(); ++fditerator) {
+			sel = *fditerator;
 			if (FD_ISSET(sel->fd, &testread)) {
 				sel->onread(sel->callbackObj, sel);
 			}
@@ -83,7 +88,7 @@ void Selector::poll() {
 	}
 }
 
-void Selector::add(int fd, FdCallback onread, FdCallback onwrite, FdCallback onerror, void *callbackObj, void *data) {
+struct SelectFd * Selector::add(int fd, FdCallback onread, FdCallback onwrite, FdCallback onerror, void *callbackObj, void *data) {
 	struct SelectFd *sel = new SelectFd;
 	sel->fd = fd;
 	sel->onread = onread;
@@ -91,73 +96,46 @@ void Selector::add(int fd, FdCallback onread, FdCallback onwrite, FdCallback one
 	sel->onerror = onerror;
 	sel->callbackObj = callbackObj;
 	sel->data = data;
-	sel->paused = 0;
+	sel->poll = POLL_READ | POLL_ERROR;
 	fdlist.push_back(sel);
 	globalfdlist.push_back(sel);
+
+// 	printf("Selector: added fd %d\n", fd);
+	return sel;
 }
 
-void Selector::remove(struct SelectFd *rem) {
-	std::list<struct SelectFd *>::iterator i;
-	struct SelectFd *sel = NULL;
-	for (i=fdlist.begin(); i != fdlist.end(); ++i) {
-		sel = *i;
-		if (sel == rem) {
-			fdlist.erase(i);
-			break;
-		}
-	}
-	for (i=globalfdlist.begin(); i != globalfdlist.end(); ++i) {
-		sel = *i;
-		if (sel == rem) {
-			globalfdlist.erase(i);
-			break;
-		}
-	}
-	if (sel)
-		free(sel);
-}
+// void Selector::remove(struct SelectFd *rem) {
+// 	fdlist.remove(rem);
+// 	globalfdlist.remove(rem);
+// 	free(rem);
+// }
 
 void Selector::remove(int fd) {
-	std::list<struct SelectFd *>::iterator i;
 	struct SelectFd *sel = NULL;
-	for (i=fdlist.begin(); i != fdlist.end(); ++i) {
+	std::list<struct SelectFd *>::iterator i;
+	
+	for (i = fdlist.begin(); i != fdlist.end(); ++i) {
 		sel = *i;
 		if (sel->fd == fd) {
-			fdlist.erase(i);
+// 			fditerator = fdlist.erase(i);
+			sel->poll = 0;
 			break;
 		}
 	}
-	for (i=globalfdlist.begin(); i != globalfdlist.end(); ++i) {
+	
+	for (i = globalfdlist.begin(); i != globalfdlist.end(); ++i) {
 		sel = *i;
 		if (sel->fd == fd) {
-			globalfdlist.erase(i);
+// 			globalfditerator = globalfdlist.erase(i);
+			sel->poll = 0;
 			break;
 		}
 	}
-	if (sel)
-		free(sel);
-}
 
-void Selector::pause(int fd) {
-	std::list<struct SelectFd *>::iterator i;
-	struct SelectFd *sel;
-	for (i=fdlist.begin(); i != fdlist.end(); ++i) {
-		sel = *i;
-		if (sel->fd == fd) {
-			sel->paused = 1;
-		}
-	}
-}
-
-void Selector::resume(int fd) {
-	std::list<struct SelectFd *>::iterator i;
-	struct SelectFd *sel;
-	for (i=fdlist.begin(); i != fdlist.end(); ++i) {
-		sel = *i;
-		if (sel->fd == fd) {
-			sel->paused = 0;
-		}
-	}
+// 	printf("Selector: removed fd %d/%d\n", fd, sel->fd);
+	
+// 	if (sel)
+// 		free(sel);
 }
 
 void Selector::allwait() {
@@ -168,20 +146,29 @@ void Selector::allwait() {
 	FD_ZERO(&testerror);
 	int fdmax = 0;
 	struct SelectFd *sel;
-	std::list<struct SelectFd *>::iterator i;
-	for (i=globalfdlist.begin(); i != globalfdlist.end(); ++i) {
-		sel = *i;
-		if (sel->paused == 0) {
-			FD_SET(sel->fd, &testread);
-			FD_SET(sel->fd, &testwrite);
-			FD_SET(sel->fd, &testerror);
+// 	std::list<struct SelectFd *>::iterator i;
+	for (globalfditerator = globalfdlist.begin(); globalfditerator != globalfdlist.end(); ) {
+		sel = *globalfditerator;
+		if (sel->poll == 0) {
+			printf("fd:%d marked for deletion\n", sel->fd);
+			globalfditerator = globalfdlist.erase(globalfditerator);
+			free(sel);
+		}
+		else {
+			if (sel->poll & POLL_READ)
+				FD_SET(sel->fd, &testread);
+			if (sel->poll & POLL_WRITE)
+				FD_SET(sel->fd, &testwrite);
+			if (sel->poll & POLL_ERROR)
+				FD_SET(sel->fd, &testerror);
 			if (sel->fd >= fdmax)
 				fdmax = sel->fd + 1;
+			++globalfditerator;
 		}
 	}
 	if (select(fdmax, &testread, &testwrite, &testerror, NULL)) {
-		for (i=globalfdlist.begin(); i != globalfdlist.end(); ++i) {
-			sel = *i;
+		for (globalfditerator = globalfdlist.begin(); globalfditerator != globalfdlist.end(); ++globalfditerator) {
+			sel = *globalfditerator;
 			if (FD_ISSET(sel->fd, &testread)) {
 				sel->onread(sel->callbackObj, sel);
 			}
@@ -206,13 +193,14 @@ void Selector::allpoll() {
 	std::list<struct SelectFd *>::iterator i;
 	for (i=globalfdlist.begin(); i != globalfdlist.end(); ++i) {
 		sel = *i;
-		if (sel->paused == 0) {
+		if (sel->poll & POLL_READ)
 			FD_SET(sel->fd, &testread);
+		if (sel->poll & POLL_WRITE)
 			FD_SET(sel->fd, &testwrite);
+		if (sel->poll & POLL_ERROR)
 			FD_SET(sel->fd, &testerror);
-			if (sel->fd >= fdmax)
-				fdmax = sel->fd + 1;
-		}
+		if (sel->fd >= fdmax)
+			fdmax = sel->fd + 1;
 	}
 	if (select(fdmax, &testread, &testwrite, &testerror, &timeout)) {
 		for (i=globalfdlist.begin(); i != globalfdlist.end(); ++i) {
@@ -236,4 +224,28 @@ Selector::iterator Selector::begin() {
 
 Selector::iterator Selector::end() {
 	return fdlist.end();
+}
+
+int Selector::canread(int fd) {
+	fd_set testread;
+	struct timeval timeout = { 0, 0 };
+	FD_ZERO(&testread);
+	FD_SET(fd, &testread);
+	return select(fd + 1, &testread, NULL, NULL, &timeout);
+}
+
+int Selector::canwrite(int fd) {
+	fd_set testwrite;
+	struct timeval timeout = { 0, 0 };
+	FD_ZERO(&testwrite);
+	FD_SET(fd, &testwrite);
+	return select(fd + 1, NULL, &testwrite, NULL, &timeout);
+}
+
+int Selector::canerror(int fd) {
+	fd_set testerror;
+	struct timeval timeout = { 0, 0 };
+	FD_ZERO(&testerror);
+	FD_SET(fd, &testerror);
+	return select(fd + 1, NULL, NULL, &testerror, &timeout);
 }

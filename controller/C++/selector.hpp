@@ -17,7 +17,10 @@ struct SelectFd {
 	Selector *parent;
 	void *callbackObj;
 	void *data;
-	int paused;
+#define POLL_READ 1
+#define POLL_WRITE 2
+#define POLL_ERROR 4
+	int poll;
 };
 
 class Selector {
@@ -25,13 +28,10 @@ public:
 	Selector();
 	~Selector();
 
-	void add(int fd, FdCallback onread, FdCallback onwrite, FdCallback onerror, void *callbackObj, void *data);
+	struct SelectFd * add(int fd, FdCallback onread, FdCallback onwrite, FdCallback onerror, void *callbackObj, void *data);
 
-	void remove(struct SelectFd *sel);
+// 	void remove(struct SelectFd *sel);
 	void remove(int fd);
-	
-	void pause(int fd);
-	void resume(int fd);
 	
 	void wait();
 	void poll();
@@ -43,10 +43,15 @@ public:
 	
 	iterator begin();
 	iterator end();
-	
+
+	static int canread(int fd);
+	static int canwrite(int fd);
+	static int canerror(int fd);
 protected:
 	std::list<struct SelectFd *> fdlist;
+	std::list<struct SelectFd *>::iterator fditerator;
 	static std::list<struct SelectFd *> globalfdlist;
+	static std::list<struct SelectFd *>::iterator globalfditerator;
 private:
 };
 

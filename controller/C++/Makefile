@@ -5,8 +5,8 @@ CXXSRC= $(wildcard *.cpp)
 
 OBJ=$(patsubst %.c,%.o,$(CSRC)) $(patsubst %.cpp,%.o,$(CXXSRC))
 
-CFLAGS=-std=gnu99 -O2 -fdata-sections -ffunction-sections -Wall 
-CXXFLAGS=-O2 -fdata-sections -ffunction-sections -Wall -std=gnu++0x
+CFLAGS=-std=gnu99 -O2 -fdata-sections -ffunction-sections -Wall
+CXXFLAGS=-O2 -fdata-sections -ffunction-sections -Wall -std=gnu++0x -g
 LDFLAGS=-Wl,--as-needed -Wl,--gc-sections
 
 .PHONY: all clean

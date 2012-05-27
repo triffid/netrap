@@ -5,6 +5,8 @@
 
 #include <string>
 
+#include "selector.hpp"
+
 class Socket {
 public:
 	Socket();
@@ -22,9 +24,19 @@ public:
 	int read(char *buf, int buflen);
 
 	int fd();
+
+	const char *toString();
 protected:
 	int _fd;
 	timeval opentime;
+
+	Selector selector;
+
+	void onread(struct SelectFd *selected);
+	void onwrite(struct SelectFd *selected);
+	void onerror(struct SelectFd *selected);
+
+	char description[64];
 private:
 };
 

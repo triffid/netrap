@@ -15,7 +15,12 @@
 #include	<arpa/inet.h>
 
 #include "socket.hpp"
+#include "TCPSocket.hpp"
 #include "selector.hpp"
+
+int socksize(struct sockaddr *address);
+uint16_t sockport(void *address);
+int sock2a(void *address, char *buffer, int length);
 
 class TCPListen {
 public:

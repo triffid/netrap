@@ -5,14 +5,20 @@ namespace C {
 	#include <sys/types.h>
 	#include <sys/stat.h>
 	#include <fcntl.h>
-	int close(int fd);
+	extern "C" ssize_t read(int fd, void *buf, size_t count);
+	extern "C" ssize_t write(int fd, const void *buf, size_t count);
+	extern "C" int close(int fd);
 }
+
+#include <cstring>
 
 Socket::Socket() {
 	_fd = -1;
+	memcpy(&description, "closed", 7);
 }
 
 Socket::~Socket() {
+	printf("Socket %s destroyed\n", description);
 	if (_fd != -1)
 		C::close(_fd);
 }
@@ -20,6 +26,8 @@ Socket::~Socket() {
 int Socket::open(int fd) {
 	Socket::_fd = fd;
 	gettimeofday(&opentime, NULL);
+	selector.add(fd, (FdCallback) &Socket::onread, (FdCallback) &Socket::onwrite, (FdCallback) &Socket::onerror, (void *) this, NULL);
+	snprintf(description, sizeof(description), "fd:%d", fd);
 	return 1;
 }
 
@@ -28,9 +36,12 @@ int Socket::opened() {
 }
 
 void Socket::close() {
-	if (_fd != -1)
+	if (_fd != -1) {
 		C::close(_fd);
+		selector.remove(_fd);
+	}
 	_fd = -1;
+	memcpy(description, "closed", 7);
 }
 
 int Socket::canread() {
@@ -45,4 +56,33 @@ int Socket::canwrite() {
 
 int Socket::fd() {
 	return _fd;
+}
+
+void Socket::onread(struct SelectFd *selected) {
+	char readbuf[1024];
+// 	printf("canread(%d)\n", selected->fd);
+	ssize_t r = C::read(selected->fd, readbuf, 1024);
+	if (r > 0) {
+		printf("read %ld bytes: ", r);
+		C::write(0, readbuf, r);
+		printf("\n");
+	}
+	else if (r == 0) {
+		printf("Connection from %s closed\n", toString());
+		close();
+		selected->poll = 0;
+	}
+	else {
+		perror("read");
+	}
+}
+
+void Socket::onwrite(struct SelectFd *selected) {
+}
+
+void Socket::onerror(struct SelectFd *selected) {
+}
+
+const char *Socket::toString() {
+	return description;
 }
