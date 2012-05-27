@@ -63,12 +63,11 @@ void Socket::onread(struct SelectFd *selected) {
 // 	printf("canread(%d)\n", selected->fd);
 	ssize_t r = C::read(selected->fd, readbuf, 1024);
 	if (r > 0) {
-		printf("read %ld bytes: ", r);
-		C::write(0, readbuf, r);
-		printf("\n");
+		readbuf[r] = 0;
+		printf("read %ld bytes: %s\n", r, readbuf);
 	}
 	else if (r == 0) {
-		printf("Connection from %s closed\n", toString());
+		printf("Connection from %s (%d) closed\n", toString(), _fd);
 		close();
 		selected->poll = 0;
 	}

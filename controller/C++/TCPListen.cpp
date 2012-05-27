@@ -48,7 +48,7 @@ int sock2a(void *address, char *buffer, int length) {
 	void *addr;
 	char buf[256];
 	uint16_t port;
-	char *fmt = NULL;
+	const char *fmt = NULL;
 	if (((struct sockaddr *) address)->sa_family == AF_INET) {
 		struct sockaddr_in *s = (struct sockaddr_in *) address;
 		addr = &s->sin_addr;
@@ -162,14 +162,17 @@ void TCPListen::onread(struct SelectFd *selected) {
 	socklen_t size = socksize((struct sockaddr *) selected->data);
 	int newfd = C::caccept(selected->fd, (struct sockaddr *) selected->data, &size);
 
-	char buf[64];
-	sock2a(selected->data, buf, 64);
-	printf("New connection from %s (%d/", buf, newfd);
+// 	char buf[64];
+// 	sock2a(selected->data, buf, 64);
+// 	printf("New connection from %s (%d/", buf, newfd);
 	
-	Socket *newsock = new Socket();
-	newsock->open(newfd);
+// 	Socket *newsock = new Socket();
+// 	newsock->open(newfd);
+	TCPSocket *newsock = new TCPSocket(newfd, (struct sockaddr *) selected->data);
 
-	printf("%p)\n", newsock);
+	printf("New connection from %s (%d)\n", newsock->toString(), newfd);
+
+// 	printf("%p)\n", newsock);
 }
 
 Socket *TCPListen::accept() {

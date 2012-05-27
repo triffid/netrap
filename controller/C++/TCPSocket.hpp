@@ -6,10 +6,9 @@
 
 class TCPSocket : public Socket {
 public:
-	TCPSocket(struct sockaddr *addr);
+	TCPSocket(int fd, struct sockaddr *addr);
 	~TCPSocket();
 protected:
-	char description[64];
 	struct sockaddr_storage myaddr;
 private:
 };

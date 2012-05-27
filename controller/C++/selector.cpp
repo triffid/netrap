@@ -150,7 +150,7 @@ void Selector::allwait() {
 	for (globalfditerator = globalfdlist.begin(); globalfditerator != globalfdlist.end(); ) {
 		sel = *globalfditerator;
 		if (sel->poll == 0) {
-			printf("fd:%d marked for deletion\n", sel->fd);
+// 			printf("fd:%d marked for deletion\n", sel->fd);
 			globalfditerator = globalfdlist.erase(globalfditerator);
 			free(sel);
 		}
