@@ -3,4 +3,4 @@
 *.log
 *.gcode
 *.strace
-
+*.o
