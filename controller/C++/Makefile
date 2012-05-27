@@ -10,6 +10,7 @@ CXXFLAGS=-O2 -fdata-sections -ffunction-sections -Wall -std=gnu++0x
 LDFLAGS=-Wl,--as-needed -Wl,--gc-sections
 
 .PHONY: all clean
+.PRECIOUS: %.o
 
 all: $(PROJECT)
 
