@@ -12,16 +12,20 @@ TCPClient::~TCPClient() {
 }
 
 int TCPClient::open(int fd) {
-	Socket::_fd = fd;
+	_fd = fd;
+	printf("o%d/%d: %p\n", fd, _fd, this);
 	gettimeofday(&opentime, NULL);
 	selector.add(fd, (FdCallback) &TCPClient::onread, (FdCallback) &TCPClient::onwrite, (FdCallback) &TCPClient::onerror, (void *) this, NULL);
-	snprintf(description, sizeof(description), "fd:%d", fd);
 	return fd;
 }
 
 void TCPClient::onread(struct SelectFd *selected) {
 	TCPSocket::onread(selected);
-	printf("onread:%d:%d\n", rxbuf->canread(), rxbuf->numlines());
+	printf("onread %d:%d:%d: %p\n", Socket::_fd, rxbuf->canread(), rxbuf->numlines(), this);
+	if (rxbuf->canread() == 0) {
+		// socket closed
+		return;
+	}
 	// now check our rxbuf for tasty lines
 	char linebuf[256];
 	int l;
@@ -94,8 +98,10 @@ void TCPClient::onread(struct SelectFd *selected) {
 		}
 	}
 // 	printf("freed %d bytes in rxbuf\n", rxbuf->canwrite());
-	if (rxbuf->canwrite() > 0)
+	if ((rxbuf->canwrite() > 0) && (_fd >= 0)) {
 		selector[_fd]->poll |= POLL_READ;
+		printf("re-enabled onread as we have %d clear\n", rxbuf->canwrite());
+	}
 }
 
 void TCPClient::onwrite(struct SelectFd *selected) {

@@ -16,7 +16,7 @@ public:
 	int open(int fd);
 	int opened();
 	void close();
-	
+
 	int canread();
 	int canwrite();
 
@@ -34,9 +34,9 @@ protected:
 
 	Selector selector;
 
-	void onread(struct SelectFd *selected);
-	void onwrite(struct SelectFd *selected);
-	void onerror(struct SelectFd *selected);
+	virtual void onread(struct SelectFd *selected);
+	virtual void onwrite(struct SelectFd *selected);
+	virtual void onerror(struct SelectFd *selected);
 
 	char description[64];
 

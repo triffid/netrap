@@ -69,8 +69,10 @@ int Socket::fd() {
 void Socket::onread(struct SelectFd *selected) {
 	printf("trying to read %d bytes\n", rxbuf->canwrite());
 	int r = rxbuf->writefromfd(selected->fd, rxbuf->canwrite());
-	if (rxbuf->canwrite() == 0)
+	if (rxbuf->canwrite() == 0) {
 		selector[_fd]->poll &= ~POLL_READ;
+		printf("disabled onread until rxbuf clears a bit\n");
+	}
 	if (r > 0) {
 		printf("read %d bytes\n", r);
 	}
