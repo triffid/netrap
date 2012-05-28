@@ -6,12 +6,14 @@
 #include <string>
 #include <map>
 
+class Printer;
 class Printer : public Socket {
+public:
 	Printer(void);
 	Printer(int fd);
 	Printer(char *port, int baud);
 	~Printer(void);
-public:
+	
 	int open(char *port, int baud);
 	
 	char **listCapabilities();
@@ -31,6 +33,8 @@ protected:
 	QueueManager queuemanager;
 	map<string, string> properties;
 	map<string, string> capabilities;
+
+	static std::list<Printer *> allprinters;
 private:
 };
 

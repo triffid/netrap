@@ -9,6 +9,8 @@ namespace C {
 	#include <fcntl.h>
 }
 
+std::list<Printer *> Printer::allprinters;
+
 Printer::Printer() {
 	Socket::_fd = -1;
 	init();
@@ -38,6 +40,8 @@ int Printer::open(char *port, int baud) {
 }
 
 void Printer::init() {
+	allprinters.push_back(this);
+	
 	capabilities["material"] = "PLA";
 	capabilities["diameter"] = "3.0";
 	capabilities["fan"] = "true";
