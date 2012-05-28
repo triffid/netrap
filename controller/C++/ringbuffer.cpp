@@ -84,6 +84,9 @@ unsigned int Ringbuffer::readtofd(int fd, unsigned int len) {
 		stage1 = len;
 	
 	stage1 = C::write(fd, &data[tail], stage1);
+
+	if (stage1 < 0)
+		return 0;
 	
 	tail += stage1;
 	if (stage1 >= length) stage1 -= length;
