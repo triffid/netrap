@@ -39,12 +39,15 @@ void Selector::wait() {
 	if (select(fdmax, &testread, &testwrite, &testerror, NULL)) {
 		for (fditerator = fdlist.begin(); fditerator != fdlist.end(); ++fditerator) {
 			sel = *fditerator;
+			if (sel->poll != 0)
 			if (FD_ISSET(sel->fd, &testread)) {
 				sel->onread(sel->callbackObj, sel);
 			}
+			if (sel->poll != 0)
 			if (FD_ISSET(sel->fd, &testwrite)) {
 				sel->onwrite(sel->callbackObj, sel);
 			}
+			if (sel->poll != 0)
 			if (FD_ISSET(sel->fd, &testerror)) {
 				sel->onerror(sel->callbackObj, sel);
 			}
@@ -166,13 +169,13 @@ void Selector::allwait() {
 	if (select(fdmax, &testread, &testwrite, &testerror, NULL)) {
 		for (globalfditerator = globalfdlist.begin(); globalfditerator != globalfdlist.end(); ++globalfditerator) {
 			sel = *globalfditerator;
-			if (FD_ISSET(sel->fd, &testread)) {
+			if ((sel->poll != 0) && (FD_ISSET(sel->fd, &testread))) {
 				sel->onread(sel->callbackObj, sel);
 			}
-			if (FD_ISSET(sel->fd, &testwrite)) {
+			if ((sel->poll != 0) && (FD_ISSET(sel->fd, &testwrite))) {
 				sel->onwrite(sel->callbackObj, sel);
 			}
-			if (FD_ISSET(sel->fd, &testerror)) {
+			if ((sel->poll != 0) && (FD_ISSET(sel->fd, &testerror))) {
 				sel->onerror(sel->callbackObj, sel);
 			}
 		}
