@@ -15,7 +15,6 @@
 #include	<arpa/inet.h>
 
 #include "socket.hpp"
-#include "TCPSocket.hpp"
 #include "selector.hpp"
 
 int socksize(struct sockaddr *address);

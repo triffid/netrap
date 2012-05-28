@@ -13,8 +13,16 @@ namespace C {
 #include <cstring>
 
 Socket::Socket() {
+	txbuf = new Ringbuffer(1024);
+	rxbuf = new Ringbuffer(128);
 	_fd = -1;
 	memcpy(&description, "closed", 7);
+// 	printf("socket %p: txbuf is at %p and rxbuf is at %p\n", this, txbuf, rxbuf);
+}
+
+Socket::Socket(int fd) {
+	Socket();
+	open(fd);
 }
 
 Socket::~Socket() {
@@ -46,12 +54,12 @@ void Socket::close() {
 
 int Socket::canread() {
 	// TODO: check underlying socket for data
-	return 1;
+	return rxbuf->numlines();
 }
 
 int Socket::canwrite() {
 	// TODO: check underlying socket for buffer space
-	return 1;
+	return txbuf->canwrite();
 }
 
 int Socket::fd() {
@@ -59,12 +67,12 @@ int Socket::fd() {
 }
 
 void Socket::onread(struct SelectFd *selected) {
-	char readbuf[1024];
-// 	printf("canread(%d)\n", selected->fd);
-	ssize_t r = C::read(selected->fd, readbuf, 1024);
+	printf("trying to read %d bytes\n", rxbuf->canwrite());
+	int r = rxbuf->writefromfd(selected->fd, rxbuf->canwrite());
+	if (rxbuf->canwrite() == 0)
+		selector[_fd]->poll &= ~POLL_READ;
 	if (r > 0) {
-		readbuf[r] = 0;
-		printf("read %ld bytes: %s\n", r, readbuf);
+		printf("read %d bytes\n", r);
 	}
 	else if (r == 0) {
 		printf("Connection from %s (%d) closed\n", toString(), _fd);
@@ -77,11 +85,30 @@ void Socket::onread(struct SelectFd *selected) {
 }
 
 void Socket::onwrite(struct SelectFd *selected) {
+	if (txbuf->numlines()) {
+		txbuf->readtofd(_fd, txbuf->canread());
+	}
+	if (txbuf->canread() == 0) {
+		selector[_fd]->poll &= ~POLL_WRITE;
+	}
 }
 
 void Socket::onerror(struct SelectFd *selected) {
+	printf("Error on %s (%d)\n", toString(), _fd);
+	close();
+	selected->poll = 0;
 }
 
 const char *Socket::toString() {
 	return description;
+}
+
+int Socket::write(std::string str) {
+	return write(str.c_str(), str.length());
+}
+
+int Socket::write(const char *str, int len) {
+	int r = txbuf->write(str, len);
+	selector[_fd]->poll |= POLL_WRITE;
+	return r;
 }

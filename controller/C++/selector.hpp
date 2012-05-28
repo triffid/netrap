@@ -29,9 +29,9 @@ public:
 	~Selector();
 
 	struct SelectFd * add(int fd, FdCallback onread, FdCallback onwrite, FdCallback onerror, void *callbackObj, void *data);
-
-// 	void remove(struct SelectFd *sel);
 	void remove(int fd);
+
+	struct SelectFd * operator[](int fd);
 	
 	void wait();
 	void poll();

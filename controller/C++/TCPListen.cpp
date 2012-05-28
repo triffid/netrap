@@ -2,6 +2,8 @@
 
 #include <sys/select.h>
 
+#include "TCPClient.hpp"
+
 namespace C {
 	int clisten(int sockfd, int backlog) {
 		return listen(sockfd, backlog);
@@ -168,7 +170,7 @@ void TCPListen::onread(struct SelectFd *selected) {
 	
 // 	Socket *newsock = new Socket();
 // 	newsock->open(newfd);
-	TCPSocket *newsock = new TCPSocket(newfd, (struct sockaddr *) selected->data);
+	TCPClient *newsock = new TCPClient(newfd, (struct sockaddr *) selected->data);
 
 	printf("New connection from %s (%d)\n", newsock->toString(), newfd);
 

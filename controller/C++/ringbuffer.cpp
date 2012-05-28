@@ -1,5 +1,11 @@
 #include	"ringbuffer.hpp"
 
+namespace C {
+	extern "C" ssize_t read(int fd, void *buf, size_t count);
+	extern "C" ssize_t write(int fd, const void *buf, size_t count);
+	extern "C" int close(int fd);
+}
+
 #include	<stdlib.h>
 #include	<string.h>
 #include	<cstdio>
@@ -22,11 +28,11 @@ unsigned int Ringbuffer::numlines() {
 
 unsigned int Ringbuffer::scannl() {
 	nl = 0;
-	for (unsigned int i = tail; i != head; i++) {
-		if (i >= length)
-			i -= length;
-		if (data[i] == 10)
-			nl++;
+	if (canread()) {
+		for (unsigned int i = tail; i != head; i = (i + 1) % length) {
+			if (data[i] == 10)
+				nl++;
+		}
 	}
 	return nl;
 }
@@ -67,6 +73,24 @@ unsigned int Ringbuffer::read(char *buf, unsigned int len) {
 	scannl();
 
 	return len;
+}
+
+unsigned int Ringbuffer::readtofd(int fd, unsigned int len) {
+	if (len > canread())
+		len = canread();
+	
+	unsigned int stage1 = length - tail;
+	if (stage1 > len)
+		stage1 = len;
+	
+	stage1 = C::write(fd, &data[tail], stage1);
+	
+	tail += stage1;
+	if (stage1 >= length) stage1 -= length;
+	
+	scannl();
+	
+	return stage1;
 }
 
 unsigned int Ringbuffer::readtofd(FILE * fd, unsigned int len) {
@@ -117,7 +141,7 @@ unsigned int Ringbuffer::readline(char *buf, unsigned int len) {
 	return r;
 }
 
-unsigned int Ringbuffer::write(char *buf, unsigned int len) {
+unsigned int Ringbuffer::write(const char *buf, unsigned int len) {
 	if (len > canwrite())
 		len = canwrite();
 
@@ -147,6 +171,25 @@ unsigned int Ringbuffer::write(char *buf, unsigned int len) {
 	return len;
 }
 
+unsigned int Ringbuffer::writefromfd(int fd, unsigned int len) {
+	if (len > canwrite())
+		len = canwrite();
+	
+	unsigned int stage1 = length - head;
+	
+	if (stage1 > len)
+		stage1 = len;
+	
+	stage1 = C::read(fd, &data[head], stage1);
+	
+	head += stage1;
+	while (head >= length) head -= length;
+	
+	scannl();
+	
+	return stage1;
+}
+
 unsigned int Ringbuffer::writefromfd(FILE *fd, unsigned int len) {
 	if (len > canwrite())
 		len = canwrite();
@@ -159,7 +202,7 @@ unsigned int Ringbuffer::writefromfd(FILE *fd, unsigned int len) {
 	stage1 = fread(&data[head], 1, stage1, fd);
 
 	head += stage1;
-	if (head >= length) head -= length;
+	while (head >= length) head -= length;
 
 	scannl();
 

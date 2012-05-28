@@ -15,12 +15,14 @@ public:
 	unsigned int canwrite();
 
 	unsigned int read(char *buf, unsigned int len);
+	unsigned int readtofd(int fd, unsigned int len);
 	unsigned int readtofd(FILE *fd, unsigned int len);
-
+	
 	unsigned int peekline(char *buf, unsigned int len);
 	unsigned int readline(char *buf, unsigned int len);
 
-	unsigned int write(char *buf, unsigned int len);
+	unsigned int write(const char *buf, unsigned int len);
+	unsigned int writefromfd(int fd, unsigned int len);
 	unsigned int writefromfd(FILE *fd, unsigned int len);
 private:
 	unsigned int scannl();

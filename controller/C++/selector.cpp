@@ -100,15 +100,8 @@ struct SelectFd * Selector::add(int fd, FdCallback onread, FdCallback onwrite, F
 	fdlist.push_back(sel);
 	globalfdlist.push_back(sel);
 
-// 	printf("Selector: added fd %d\n", fd);
 	return sel;
 }
-
-// void Selector::remove(struct SelectFd *rem) {
-// 	fdlist.remove(rem);
-// 	globalfdlist.remove(rem);
-// 	free(rem);
-// }
 
 void Selector::remove(int fd) {
 	struct SelectFd *sel = NULL;
@@ -117,7 +110,6 @@ void Selector::remove(int fd) {
 	for (i = fdlist.begin(); i != fdlist.end(); ++i) {
 		sel = *i;
 		if (sel->fd == fd) {
-// 			fditerator = fdlist.erase(i);
 			sel->poll = 0;
 			break;
 		}
@@ -126,16 +118,23 @@ void Selector::remove(int fd) {
 	for (i = globalfdlist.begin(); i != globalfdlist.end(); ++i) {
 		sel = *i;
 		if (sel->fd == fd) {
-// 			globalfditerator = globalfdlist.erase(i);
 			sel->poll = 0;
 			break;
 		}
 	}
+}
 
-// 	printf("Selector: removed fd %d/%d\n", fd, sel->fd);
+struct SelectFd * Selector::operator[](int fd) {
+	struct SelectFd *sel = NULL;
+	std::list<struct SelectFd *>::iterator i;
 	
-// 	if (sel)
-// 		free(sel);
+	for (i = fdlist.begin(); i != fdlist.end(); ++i) {
+		sel = *i;
+		if (sel->fd == fd) {
+			return sel;
+		}
+	}
+	return NULL;
 }
 
 void Selector::allwait() {
@@ -146,11 +145,9 @@ void Selector::allwait() {
 	FD_ZERO(&testerror);
 	int fdmax = 0;
 	struct SelectFd *sel;
-// 	std::list<struct SelectFd *>::iterator i;
 	for (globalfditerator = globalfdlist.begin(); globalfditerator != globalfdlist.end(); ) {
 		sel = *globalfditerator;
 		if (sel->poll == 0) {
-// 			printf("fd:%d marked for deletion\n", sel->fd);
 			globalfditerator = globalfdlist.erase(globalfditerator);
 			free(sel);
 		}

@@ -5,11 +5,13 @@
 
 #include <string>
 
+#include "ringbuffer.hpp"
 #include "selector.hpp"
 
 class Socket {
 public:
 	Socket();
+	Socket(int fd);
 	~Socket();
 	int open(int fd);
 	int opened();
@@ -37,6 +39,9 @@ protected:
 	void onerror(struct SelectFd *selected);
 
 	char description[64];
+
+	Ringbuffer *rxbuf;
+	Ringbuffer *txbuf;
 private:
 };
 
