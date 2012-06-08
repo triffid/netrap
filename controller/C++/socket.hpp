@@ -22,6 +22,7 @@ public:
 
 	int write(std::string str);
 	int write(const char *str, int len);
+	int printf(const char *format, ...);
 
 	int read(char *buf, int buflen);
 

@@ -11,6 +11,7 @@ namespace C {
 }
 
 #include <cstring>
+#include <cstdarg>
 
 Socket::Socket() {
 	txbuf = new Ringbuffer(1024);
@@ -34,7 +35,8 @@ Socket::~Socket() {
 int Socket::open(int fd) {
 	Socket::_fd = fd;
 	gettimeofday(&opentime, NULL);
-	selector.add(fd, (FdCallback) &Socket::onread, (FdCallback) &Socket::onwrite, (FdCallback) &Socket::onerror, (void *) this, NULL);
+// 	selector.add(fd, (FdCallback) &Socket::onread, (FdCallback) &Socket::onwrite, (FdCallback) &Socket::onerror, (void *) this, NULL);
+	selector.add(fd, this);
 // 	snprintf(description, sizeof(description), "fd:%d", fd);
 	return 1;
 }
@@ -112,5 +114,22 @@ int Socket::write(std::string str) {
 int Socket::write(const char *str, int len) {
 	int r = txbuf->write(str, len);
 	selector[_fd]->poll |= POLL_WRITE;
+	return r;
+}
+
+int Socket::printf(const char *format, ...) {
+	int r = 256, s = 0;
+	char *buf = NULL;
+	va_list ap;
+	do {
+		if (buf) free(buf);
+		if (r >= s) s = r + 1;
+		buf = (char *) malloc(s);
+		va_start(ap, format);
+		r = vsnprintf(buf, s, format, ap);
+		va_end(ap);
+	} while (r >= s);
+	write(buf, r);
+	free(buf);
 	return r;
 }

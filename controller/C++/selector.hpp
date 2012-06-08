@@ -5,7 +5,7 @@
 
 struct SelectFd;
 
-typedef void (*FdCallback)(void *obj, struct SelectFd *selector);
+// typedef void (*FdCallback)(void *obj, struct SelectFd *selector);
 
 class Selector;
 class SelectorEventReceiver;
@@ -41,7 +41,7 @@ public:
 	Selector();
 	~Selector();
 
-	struct SelectFd * add(int fd, FdCallback onread, FdCallback onwrite, FdCallback onerror, void *callbackObj, void *data);
+// 	struct SelectFd * add(int fd, FdCallback onread, FdCallback onwrite, FdCallback onerror, void *callbackObj, void *data);
 	struct SelectFd * add(int fd, SelectorEventReceiver *callbackObj);
 	void remove(int fd);
 

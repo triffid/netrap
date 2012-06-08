@@ -13,7 +13,10 @@ public:
 	Printer(int fd);
 	Printer(char *port, int baud);
 	~Printer(void);
-
+	
+	static std::list<Printer *> allprinters;
+	static int printercount();
+	
 	char *name();
 	void setname(char *newname);
 
@@ -38,7 +41,7 @@ protected:
 	map<string, string> properties;
 	map<string, string> capabilities;
 
-	static std::list<Printer *> allprinters;
+	static int allprinters_count;
 private:
 };
 

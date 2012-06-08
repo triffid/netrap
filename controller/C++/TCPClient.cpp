@@ -1,11 +1,21 @@
 #include "TCPClient.hpp"
 
+TCPClient::Command TCPClient::commands[] = {
+	{ "list printers",	&TCPClient::cmd_list_printers },
+	{ "add printer",	&TCPClient::cmd_add_printer },
+	{ "exit",			&TCPClient::cmd_exit },
+	{ "shutdown",		&TCPClient::cmd_shutdown },
+	{ NULL,				NULL }
+};
+
 TCPClient::TCPClient(int fd, struct sockaddr *addr) {
 	memcpy(&myaddr, addr, socksize(addr));
 	open(fd);
 	sock2a(addr, description, sizeof(description));
 
 	state = TCPCLIENT_STATE_CLASSIFY;
+
+	printer = NULL;
 }
 
 TCPClient::~TCPClient() {
@@ -49,6 +59,9 @@ void TCPClient::onread(struct SelectFd *selected) {
 					bodycomplete = 0;
 
 					printf("method: %s\nuri: %s\nprotocol: %s\n", httpdata["method"].c_str(), httpdata["uri"].c_str(), httpdata["protocol"].c_str());
+				}
+				else {
+					process_netrap_request(linebuf, l);
 				}
 				break;
 			}
@@ -107,7 +120,7 @@ void TCPClient::onread(struct SelectFd *selected) {
 
 void TCPClient::onwrite(struct SelectFd *selected) {
 	TCPSocket::onwrite(selected);
-	if (state != TCPCLIENT_STATE_CLASSIFY) {
+	if (state == TCPCLIENT_STATE_CLOSING) {
 		if (txbuf->canread() == 0) {
 			selector.remove(_fd);
 			close();
@@ -133,8 +146,26 @@ void TCPClient::process_http_request() {
 		wp += snprintf(wp, (writebuf + 256 - wp), "\t%s:\t%s\n", (*i).first.c_str(), (*i).second.c_str());
 		write(string(writebuf)); wp = writebuf;
 	}
+	state = TCPCLIENT_STATE_CLOSING;
 // 	close();
 // 	selector.remove(_fd);
+}
+
+void TCPClient::process_netrap_request(const char *line, int len) {
+	int i = 0;
+	const char *cmd;
+	void (TCPClient::*func)(const char *line, int cmd);
+	for (i = 0; commands[i].command != NULL; i++) {
+		cmd = commands[i].command;
+		func = commands[i].func;
+		if (strncmp(line, cmd, strlen(cmd)) == 0) {
+			(this->*func)(line, len);
+			return;
+		}
+	}
+}
+
+void TCPClient::process_gcode_request(const char *line, int len) {
 }
 
 int TCPClient::printl(const char *str) {
@@ -149,4 +180,34 @@ int TCPClient::printl(const char *str) {
 		}
 	}
 	return r;
+}
+
+void TCPClient::cmd_list_printers(const char *line, int len) {
+	if (Printer::printercount() == 0) {
+		write("No printers connected\n");
+	}
+	else {
+		int i, r;
+		char buf[64];
+		std::list<Printer *>::iterator j = Printer::allprinters.begin();
+		for (i = 0; j != Printer::allprinters.end(); i++, j++) {
+			r = snprintf(buf, 64, "%2d: %s\n", i, (*j)->name());
+			write(buf, r);
+		}
+		write("--end of list--\n");
+	}
+}
+
+void TCPClient::cmd_add_printer(const char *line, int len) {
+	Printer *p = new Printer();
+	printf("Printer \"%s\" created\n", p->name());
+}
+
+void TCPClient::cmd_exit(const char *line, int len) {
+	state = TCPCLIENT_STATE_CLOSING;
+	write("Goodbye\n");
+}
+
+void TCPClient::cmd_shutdown(const char *line, int len) {
+	exit(0);
 }

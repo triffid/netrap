@@ -8,9 +8,12 @@ namespace C {
 	#include <sys/types.h>
 	#include <sys/stat.h>
 	#include <fcntl.h>
+
+	extern "C" int printf(const char *format, ...);
 }
 
 std::list<Printer *> Printer::allprinters;
+int Printer::allprinters_count;
 
 Printer::Printer() {
 	Socket::_fd = -1;
@@ -29,7 +32,8 @@ Printer::Printer(char *port, int baud) {
 
 Printer::~Printer() {
 	close();
-	init();
+	allprinters.remove(this);
+	allprinters_count--;
 }
 
 char *Printer::name() {
@@ -53,6 +57,10 @@ int Printer::open(char *port, int baud) {
 
 void Printer::init() {
 	allprinters.push_back(this);
+	allprinters_count++;
+	
+	_name = (char *) malloc(sizeof(void *) * 2 + 3);
+	C::printf("%d chars in name %s\n", snprintf(_name, sizeof(void *) * 2 + 3, "%p", this), this->name());
 
 	capabilities["material"] = "PLA";
 	capabilities["diameter"] = "3.0";
@@ -75,9 +83,11 @@ void Printer::init() {
 	properties["fanspeed"] = "0";
 
 	queuemanager.setDrain(this);
-	write("M115\n", 5);
-	write("M114\n", 5);
-	write("M105\n", 5);
+	if (_fd >= 0) {
+		write("M115\n", 5);
+		write("M114\n", 5);
+		write("M105\n", 5);
+	}
 }
 
 int Printer::write(string str) {
@@ -93,4 +103,8 @@ int Printer::read(char *buf, int buflen) {
 	int r = Socket::read(buf, buflen);
 	// TODO: extract properties from replies
 	return r;
+}
+
+int Printer::printercount() {
+	return allprinters_count;
 }

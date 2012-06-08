@@ -15,7 +15,8 @@ TCPSocket::~TCPSocket() {
 int TCPSocket::open(int fd) {
 	Socket::_fd = fd;
 	gettimeofday(&opentime, NULL);
-	selector.add(fd, (FdCallback) &TCPSocket::onread, (FdCallback) &TCPSocket::onwrite, (FdCallback) &TCPSocket::onerror, (void *) this, NULL);
+// 	selector.add(fd, (FdCallback) &TCPSocket::onread, (FdCallback) &TCPSocket::onwrite, (FdCallback) &TCPSocket::onerror, (void *) this, NULL);
+	selector.add(fd, this);
 	snprintf(description, sizeof(description), "fd:%d", fd);
 	return 1;
 }

@@ -187,7 +187,7 @@ void Selector::allwait() {
 		}
 	}
 	if (fdmax == 0)
-		*((char *) -1) = 12345; // segfault to trigger debugger
+		*((int *) -1) = 12345; // segfault to trigger debugger
 	if (select(fdmax, &testread, &testwrite, &testerror, NULL)) {
 		for (globalfditerator = globalfdlist.begin(); globalfditerator != globalfdlist.end(); ++globalfditerator) {
 			sel = *globalfditerator;
