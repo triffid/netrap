@@ -8,7 +8,7 @@
 #include "ringbuffer.hpp"
 #include "selector.hpp"
 
-class Socket {
+class Socket : public SelectorEventReceiver {
 public:
 	Socket();
 	Socket(int fd);

@@ -1,6 +1,7 @@
 #include "printer.hpp"
 
 #include <cstdio>
+#include <cstring>
 
 namespace C {
 	#include <unistd.h>
@@ -31,6 +32,17 @@ Printer::~Printer() {
 	init();
 }
 
+char *Printer::name() {
+	return _name;
+}
+
+void Printer::setname(char *newname) {
+	free(_name);
+	int l = strlen(newname);
+	_name = (char *) malloc(l);
+	memcpy(_name, newname, l);
+}
+
 int Printer::open(char *port, int baud) {
 	_fd = open(port, O_RDWR | O_NOCTTY | O_NONBLOCK);
 	if (_fd != -1) {
@@ -41,11 +53,11 @@ int Printer::open(char *port, int baud) {
 
 void Printer::init() {
 	allprinters.push_back(this);
-	
+
 	capabilities["material"] = "PLA";
 	capabilities["diameter"] = "3.0";
 	capabilities["fan"] = "true";
-	
+
 	properties["position.X"] = "0";
 	properties["position.Y"] = "0";
 	properties["position.Z"] = "0";
@@ -61,7 +73,7 @@ void Printer::init() {
 	properties["temperature.bed"] = "0";
 	properties["temperature.bed.target"] = "0";
 	properties["fanspeed"] = "0";
-	
+
 	queuemanager.setDrain(this);
 	write("M115\n", 5);
 	write("M114\n", 5);

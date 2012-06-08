@@ -21,7 +21,7 @@ int socksize(struct sockaddr *address);
 uint16_t sockport(void *address);
 int sock2a(void *address, char *buffer, int length);
 
-class TCPListen {
+class TCPListen : public SelectorEventReceiver {
 public:
 	TCPListen();
 	TCPListen(uint16_t port);

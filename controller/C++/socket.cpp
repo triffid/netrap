@@ -35,7 +35,7 @@ int Socket::open(int fd) {
 	Socket::_fd = fd;
 	gettimeofday(&opentime, NULL);
 	selector.add(fd, (FdCallback) &Socket::onread, (FdCallback) &Socket::onwrite, (FdCallback) &Socket::onerror, (void *) this, NULL);
-	snprintf(description, sizeof(description), "fd:%d", fd);
+// 	snprintf(description, sizeof(description), "fd:%d", fd);
 	return 1;
 }
 
@@ -67,14 +67,14 @@ int Socket::fd() {
 }
 
 void Socket::onread(struct SelectFd *selected) {
-	printf("trying to read %d bytes\n", rxbuf->canwrite());
+// 	printf("trying to read %d bytes\n", rxbuf->canwrite());
 	int r = rxbuf->writefromfd(selected->fd, rxbuf->canwrite());
 	if (rxbuf->canwrite() == 0) {
 		selector[_fd]->poll &= ~POLL_READ;
-		printf("disabled onread until rxbuf clears a bit\n");
+// 		printf("disabled onread until rxbuf clears a bit\n");
 	}
 	if (r > 0) {
-		printf("read %d bytes\n", r);
+// 		printf("read %d bytes\n", r);
 	}
 	else if (r == 0) {
 		printf("Connection from %s (%d) closed\n", toString(), _fd);

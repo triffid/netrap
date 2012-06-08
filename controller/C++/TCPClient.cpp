@@ -13,15 +13,16 @@ TCPClient::~TCPClient() {
 
 int TCPClient::open(int fd) {
 	_fd = fd;
-	printf("o%d/%d: %p\n", fd, _fd, this);
+// 	printf("o%d/%d: %p\n", fd, _fd, this);
 	gettimeofday(&opentime, NULL);
-	selector.add(fd, (FdCallback) &TCPClient::onread, (FdCallback) &TCPClient::onwrite, (FdCallback) &TCPClient::onerror, (void *) this, NULL);
+// 	selector.add(fd, (FdCallback) &TCPClient::onread, (FdCallback) &TCPClient::onwrite, (FdCallback) &TCPClient::onerror, (void *) this, NULL);
+	selector.add(fd, this);
 	return fd;
 }
 
 void TCPClient::onread(struct SelectFd *selected) {
 	TCPSocket::onread(selected);
-	printf("onread %d:%d:%d: %p\n", Socket::_fd, rxbuf->canread(), rxbuf->numlines(), this);
+// 	printf("onread %d:%d:%d: %p\n", Socket::_fd, rxbuf->canread(), rxbuf->numlines(), this);
 	if (rxbuf->canread() == 0) {
 		// socket closed
 		return;
@@ -32,22 +33,22 @@ void TCPClient::onread(struct SelectFd *selected) {
 	while (rxbuf->numlines() > 0) {
 		l = rxbuf->readline(linebuf, 256);
 		linebuf[l] = 0;
-		printf("[%d]< ", state); printl(linebuf); printf("\n");
+// 		printf("[%d]< ", state); printl(linebuf); printf("\n");
 		switch (state) {
 			case TCPCLIENT_STATE_CLASSIFY: {
 				if (strncmp(linebuf, "GET /", 5) == 0) {
 					state = TCPCLIENT_STATE_HTTPHEADER;
 					char *tok = linebuf;
 					char sep[5] = " \t\r\n";
-					httpdata[string("method")] = string(strsep(&tok, sep));
-					httpdata[string("uri")] = string(strsep(&tok, sep));
-					httpdata[string("protocol")] = string(strsep(&tok, sep));
+					httpdata["method"] = string(strsep(&tok, sep));
+					httpdata["uri"] = string(strsep(&tok, sep));
+					httpdata["protocol"] = string(strsep(&tok, sep));
 
 					bodysize = 0;
 					bodyrmn = 0;
 					bodycomplete = 0;
 
-					printf("method: %s\nuri: %s\nprotocol: %s\n", httpdata[string("method")].c_str(), httpdata[string("uri")].c_str(), httpdata[string("protocol")].c_str());
+					printf("method: %s\nuri: %s\nprotocol: %s\n", httpdata["method"].c_str(), httpdata["uri"].c_str(), httpdata["protocol"].c_str());
 				}
 				break;
 			}
@@ -78,7 +79,7 @@ void TCPClient::onread(struct SelectFd *selected) {
 						linebuf[++l] = 0;
 
 						httpdata[string(linebuf)] = string(value);
-						printf("Added %s = %s to metadata\n", linebuf, value);
+// 						printf("Added %s = %s to metadata\n", linebuf, value);
 					}
 				}
 				break;
@@ -100,7 +101,7 @@ void TCPClient::onread(struct SelectFd *selected) {
 // 	printf("freed %d bytes in rxbuf\n", rxbuf->canwrite());
 	if ((rxbuf->canwrite() > 0) && (_fd >= 0)) {
 		selector[_fd]->poll |= POLL_READ;
-		printf("re-enabled onread as we have %d clear\n", rxbuf->canwrite());
+// 		printf("re-enabled onread as we have %d clear\n", rxbuf->canwrite());
 	}
 }
 
@@ -119,10 +120,10 @@ void TCPClient::onerror(struct SelectFd *selected) {
 }
 
 void TCPClient::process_http_request() {
-	printf("Processing %s request for %s\n", httpdata[string("method")].c_str(), httpdata[string("uri")].c_str());
+	printf("Processing %s request for %s\n", httpdata["method"].c_str(), httpdata["uri"].c_str());
 	char writebuf[256];
 	char *wp = writebuf;
-	wp += snprintf(wp, (writebuf + 256 - wp), "%s 200 OK\r\nConnection: close\r\nContent-Type: text/plain\r\n\r\n", httpdata[string("protocol")].c_str());
+	wp += snprintf(wp, (writebuf + 256 - wp), "%s 200 OK\r\nConnection: close\r\nContent-Type: text/plain\r\n\r\n", httpdata["protocol"].c_str());
 	write(string(writebuf)); wp = writebuf;
 	printf("Headers:\n");
 	write(string("Headers:\n"));

@@ -63,7 +63,7 @@ int sock2a(void *address, char *buffer, int length) {
 		port = s->sin6_port;
 		fmt = "[%s].%d";
 	}
-	
+
 	if (fmt) {
 		inet_ntop(((struct sockaddr * ) address)->sa_family, addr, buf, 256);
 		return snprintf(buffer, length, fmt, buf, ntohs(port));
@@ -87,60 +87,61 @@ int TCPListen::listen(uint16_t port) {
 	hints.ai_canonname = NULL;
 	hints.ai_addr = NULL;
 	hints.ai_next = NULL;
-	
+
 	snprintf(buf, 64, "%d", port);
 	if ((s = getaddrinfo(NULL, buf, &hints, &result)) != 0) {
 		fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(s));
 		exit(1);
 	}
-	
+
 // 	listen_socket *listensock;
 	for (rp = result; rp != NULL; rp = rp->ai_next) {
 // 		listensock = malloc(sizeof(listen_socket));
 // 		listensock->type = SOCKTYPE_LISTEN;
 		struct sockaddr_storage *addr = (struct sockaddr_storage *) malloc(rp->ai_addrlen);
-		
+
 		memcpy(&listenaddr, rp->ai_addr, rp->ai_addrlen);
 		memcpy(addr, rp->ai_addr, rp->ai_addrlen);
-		
+
 		int fd = socket(rp->ai_family, SOCK_STREAM, IPPROTO_TCP);
-		
+
 		int yes = 1;
 		if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1) {
 			perror("setsockopt");
 			exit(1);
 		}
-		
+
 		if (rp->ai_family == AF_INET6) {
 			if (setsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY, &yes, sizeof(int)) == -1) {
 				perror("setsockopt");
 				exit(1);
 			}
 		}
-		
+
 		if (bind(fd, rp->ai_addr, rp->ai_addrlen) == -1) {
 			perror("bind");
 			exit(1);
 		}
-		
+
 		if (C::clisten(fd, SOMAXCONN) == -1) {
 			perror("listen");
 			exit(1);
 		}
-		
+
 		sock2a(rp->ai_addr, buf, 64);
 		fprintf(stderr, "Listening on %s\n", buf);
-		
+
 		listenport = sockport(rp->ai_addr);
 		listenfd.push_back(fd);
 
-		selector.add(fd, (FdCallback) &TCPListen::onread, NULL, NULL, (void *) this, (void *) addr);
+// 		selector.add(fd, (FdCallback) &TCPListen::onread, NULL, NULL, (void *) this, (void *) addr);
+		selector.add(fd, this)->data = (void *) addr;
 // 		listensock->protocol = protocol;
-		
+
 // 		readsockets = array_push(readsockets, listensock);
 // 		errorsockets = array_push(errorsockets, listensock);
 	}
-	
+
 	freeaddrinfo(result);
 // 	return listensock;
 	return 0;
@@ -167,7 +168,7 @@ void TCPListen::onread(struct SelectFd *selected) {
 // 	char buf[64];
 // 	sock2a(selected->data, buf, 64);
 // 	printf("New connection from %s (%d/", buf, newfd);
-	
+
 // 	Socket *newsock = new Socket();
 // 	newsock->open(newfd);
 	TCPClient *newsock = new TCPClient(newfd, (struct sockaddr *) selected->data);
@@ -175,6 +176,12 @@ void TCPListen::onread(struct SelectFd *selected) {
 	printf("New connection from %s (%d)\n", newsock->toString(), newfd);
 
 // 	printf("%p)\n", newsock);
+}
+
+void TCPListen::onwrite(struct SelectFd *selected) {
+}
+
+void TCPListen::onerror(struct SelectFd *selected) {
 }
 
 Socket *TCPListen::accept() {
@@ -191,7 +198,7 @@ Socket *TCPListen::accept() {
 		if (*i >= fdmax)
 			fdmax = *i + 1;
 	}
-	
+
 	if (select(fdmax, &testread, NULL, NULL, &timeout)) {
 		int fd = -1;
 		std::vector<int>::iterator i;

@@ -13,9 +13,12 @@ public:
 	Printer(int fd);
 	Printer(char *port, int baud);
 	~Printer(void);
-	
+
+	char *name();
+	void setname(char *newname);
+
 	int open(char *port, int baud);
-	
+
 	char **listCapabilities();
 	char *getCapability(char *capability);
 	void setCapability(char *capability, char *value);
@@ -29,6 +32,7 @@ public:
 
 	int read(char *buffer, int buflen);
 protected:
+	char *_name;
 	void init();
 	QueueManager queuemanager;
 	map<string, string> properties;
