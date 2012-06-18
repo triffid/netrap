@@ -14,11 +14,19 @@ public:
 	QueueManager();
 	QueueManager(Socket *drain);
 	~QueueManager();
-	void setDrain(Socket *drain);
-	void addSocket(Socket *s);
-	void delSocket(Socket *s);
+
+#define BEHAVIOUR_SOURCEPAUSE 1;
+#define BEHAVIOUR_DRAINDROP   2;
+	void setBehaviours(int behaviours);
+
+	void addDrain(Socket *drain);
+	void delDrain(Socket *drain);
+
+	void addSource(Socket *s);
+	void delSource(Socket *s);
 private:
-	Socket *drain;
+	int behaviour;
+	list<Socket *> drains;
 	list<Socket *> sources;
 };
 

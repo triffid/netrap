@@ -26,11 +26,16 @@ public:
 
 	int read(char *buf, int buflen);
 
+	void stall(void);
+	void unstall(void);
+	int is_stalled(void);
+
 	int fd();
 
 	const char *toString();
 protected:
 	int _fd;
+	int stalled;
 	timeval opentime;
 
 	Selector selector;

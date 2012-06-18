@@ -1,10 +1,15 @@
 #include "TCPClient.hpp"
 
+namespace C {
+	extern "C" int printf(const char *format, ...);
+}
+
 TCPClient::Command TCPClient::commands[] = {
 	{ "list printers",	&TCPClient::cmd_list_printers },
 	{ "add printer",	&TCPClient::cmd_add_printer },
 	{ "exit",			&TCPClient::cmd_exit },
 	{ "shutdown",		&TCPClient::cmd_shutdown },
+	{ "use printer",	&TCPClient::cmd_use_printer },
 	{ NULL,				NULL }
 };
 
@@ -58,7 +63,7 @@ void TCPClient::onread(struct SelectFd *selected) {
 					bodyrmn = 0;
 					bodycomplete = 0;
 
-					printf("method: %s\nuri: %s\nprotocol: %s\n", httpdata["method"].c_str(), httpdata["uri"].c_str(), httpdata["protocol"].c_str());
+					C::printf("method: %s\nuri: %s\nprotocol: %s\n", httpdata["method"].c_str(), httpdata["uri"].c_str(), httpdata["protocol"].c_str());
 				}
 				else {
 					process_netrap_request(linebuf, l);
@@ -133,16 +138,16 @@ void TCPClient::onerror(struct SelectFd *selected) {
 }
 
 void TCPClient::process_http_request() {
-	printf("Processing %s request for %s\n", httpdata["method"].c_str(), httpdata["uri"].c_str());
+	C::printf("Processing %s request for %s\n", httpdata["method"].c_str(), httpdata["uri"].c_str());
 	char writebuf[256];
 	char *wp = writebuf;
 	wp += snprintf(wp, (writebuf + 256 - wp), "%s 200 OK\r\nConnection: close\r\nContent-Type: text/plain\r\n\r\n", httpdata["protocol"].c_str());
 	write(string(writebuf)); wp = writebuf;
-	printf("Headers:\n");
+	C::printf("Headers:\n");
 	write(string("Headers:\n"));
 	std::map<string, string>::iterator i;
 	for (i=httpdata.begin(); i != httpdata.end(); i++) {
-		printf("\t%s:\t%s\n", (*i).first.c_str(), (*i).second.c_str());
+		C::printf("\t%s:\t%s\n", (*i).first.c_str(), (*i).second.c_str());
 		wp += snprintf(wp, (writebuf + 256 - wp), "\t%s:\t%s\n", (*i).first.c_str(), (*i).second.c_str());
 		write(string(writebuf)); wp = writebuf;
 	}
@@ -162,6 +167,10 @@ void TCPClient::process_netrap_request(const char *line, int len) {
 			(this->*func)(line, len);
 			return;
 		}
+	}
+	// not a command- check if we have a printer
+	if (printer != NULL) {
+		printer->write(this, line, len);
 	}
 }
 
@@ -201,6 +210,25 @@ void TCPClient::cmd_list_printers(const char *line, int len) {
 void TCPClient::cmd_add_printer(const char *line, int len) {
 	Printer *p = new Printer();
 	printf("Printer \"%s\" created\n", p->name());
+}
+
+void TCPClient::cmd_use_printer(const char *line, int len) {
+	const char *nameptr = line + 12;
+	int l;
+	for (l = 0; nameptr[l] > 32 && l < len; l++);
+	char *name = (char *) malloc(l + 1);
+	memcpy(name, nameptr, l);
+	name[l] = 0;
+// 	printf("looking for printer called \"%s\"\n", name);
+	std::list<Printer *>::iterator i = Printer::allprinters.begin();
+	for (; i != Printer::allprinters.end(); i++) {
+// 		printf("Checking \"%s\"\n", (*i)->name());
+		if (strncmp(name, (*i)->name(), l) == 0) {
+// 			printf("Match!\n");
+			printer = (*i);
+			return;
+		}
+	}
 }
 
 void TCPClient::cmd_exit(const char *line, int len) {

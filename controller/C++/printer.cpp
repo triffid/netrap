@@ -12,6 +12,8 @@ namespace C {
 	extern "C" int printf(const char *format, ...);
 }
 
+#include "gcode.hpp"
+
 std::list<Printer *> Printer::allprinters;
 int Printer::allprinters_count;
 
@@ -58,7 +60,7 @@ int Printer::open(char *port, int baud) {
 void Printer::init() {
 	allprinters.push_back(this);
 	allprinters_count++;
-	
+
 	_name = (char *) malloc(sizeof(void *) * 2 + 3);
 	C::printf("%d chars in name %s\n", snprintf(_name, sizeof(void *) * 2 + 3, "%p", this), this->name());
 
@@ -95,13 +97,24 @@ int Printer::write(string str) {
 }
 
 int Printer::write(const char *str, int len) {
+	float words[32];
+	uint32_t seen;
 	// TODO: extract target properties from outgoing commands
+	seen = Gcode::parse(str, len, words);
 	return Socket::write(str, len);
+}
+
+int Printer::write(Socket *respondent, const char *str, int len) {
+	this->respondent = respondent;
+	return write(str, len);
 }
 
 int Printer::read(char *buf, int buflen) {
 	int r = Socket::read(buf, buflen);
 	// TODO: extract properties from replies
+	if (respondent) {
+		respondent->write(buf, buflen);
+	}
 	return r;
 }
 

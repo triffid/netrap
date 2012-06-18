@@ -68,6 +68,20 @@ int Socket::fd() {
 	return _fd;
 }
 
+void Socket::stall(void) {
+	stalled = 1;
+	selector.remove(_fd);
+}
+
+void Socket::unstall(void) {
+	stalled = 0;
+	selector.add(_fd, this);
+}
+
+int Socket::is_stalled(void) {
+	return stalled;
+}
+
 void Socket::onread(struct SelectFd *selected) {
 // 	printf("trying to read %d bytes\n", rxbuf->canwrite());
 	int r = rxbuf->writefromfd(selected->fd, rxbuf->canwrite());
