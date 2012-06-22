@@ -11,7 +11,7 @@
 	</head>
 	<body>
 		<div class="toolbar">
-			<div><span>Printer:</span><select name="printer"><option value="0">A1001NCz</option></select><input type="button" id="refreshPrinters" value="R" /></div>
+			<div><span>Printer:</span><select id="printer"><option value="0">A1001NCz</option></select><input type="button" id="refreshPrinters" value="R" /></div>
 			<div><input type="checkbox" id="monitor" /><span label="monitor">Monitor Printer</span></div>
 			<div><input type="button" id="getpos" value="Get Position" /></div>
 			<div><input type="button" id="clearlog" value="Clear Log" /></div>
@@ -46,11 +46,11 @@
 				} catch (e) {
 					alert(e);
 				}
-				
+
 				jogXY.draw();
 				jogZ.draw();
 				jogE.draw();
-				
+
 				function callback_jogEvent(e) {
 // 					alert(e.gcode.join("\n"));
 					for (var i = 0; i < e.gcode.length; i++) {

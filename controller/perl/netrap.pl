@@ -209,6 +209,7 @@ while (1) {
 	# 									printf "%s: %d\n", $sock->{remoteaddr}, $sock->{count};
 									}
 								}
+								$request->{'CONTENT-LENGTH'} = 0 unless $request->{'CONTENT-LENGTH'};
 								if ($request->{'CONTENT-LENGTH'} <= 0) {
 									$sock->{txbuffer} = sprintf("HTTP/%s 200 OK\nContent-type: application/json\nConnection: Close\n\n{\"status\":\"success\",\"replies\":[", $request->{version});
 									$WriteSelector->add($s);
@@ -222,6 +223,7 @@ while (1) {
 									$WriteSelector->add($s);
 									$sock->{count}-- if $reply =~ /^ok\b/;
 									if ($sock->{count} <= 0) {
+										$sock->{txbuffer} =~ s/,$//m;
 										$sock->{txbuffer} .= "]}\n";
 										$sock->{close} = 1;
 										$WriteSelector->add($s);
@@ -284,10 +286,11 @@ while (1) {
 								}
 							};
 							/^printer-list$/ && do {
-								$sock->{txbuffer} .= sprintf "HTTP/%s 200 OK\nContent-Type: application/json\nConnection: close\n\n{printercount:%d,printers:[\n", $request->{version}, (scalar keys %PrinterSockets);
+								$sock->{txbuffer} .= sprintf "HTTP/%s 200 OK\nContent-Type: application/json\nConnection: close\n\n{\"printercount\":%d,\"printers\":[", $request->{version}, (scalar keys %PrinterSockets);
 								for my $printer (keys %PrinterSockets) {
-									$sock->{txbuffer} .= sprintf "\t{\"name\": \"%s\",\"address\":\"%s\"},\n", $PrinterSockets{$printer}->{name}, $PrinterSockets{$printer}->{address};
+									$sock->{txbuffer} .= sprintf "{\"name\":\"%s\",\"address\":\"%s\"},", $PrinterSockets{$printer}->{name}, $PrinterSockets{$printer}->{address};
 								}
+								$sock->{txbuffer} =~ s/,$//m;
 								$sock->{txbuffer} .= "]}";
 								$WriteSelector->add($s);
 								$sock->{close} = 1;
@@ -392,6 +395,7 @@ while (1) {
 				printf "%s: #%d", $sock->{remoteaddr}, $sock->{count};
 				if ($sock->{count} <= 0) {
 					print ", closing";
+					$sock->{txbuffer} =~ s/,$//m;
 					$sock->{txbuffer} .= "]}\n";
 					$sock->{close} = 1;
 					undef $sock->{printer}->{requestor};

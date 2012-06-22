@@ -78,16 +78,7 @@ netrapUplink.prototype = {
 		var self = this;
 		var r = new Ajax.Request("json/query", {
 			contentType: "text/plain",
-			parameters: query + "\n",
-			onLoading: function (response) {
-				// 				alert('AJAX: loading ' + response);
-			},
-			onLoaded: function (response) {
-				// 				alert('AJAX: loaded ' + response);
-			},
-			onInteractive: function (response) {
-				// 				alert('AJAX: interactive ' + response);
-			},
+			parameters: "select " + $('printer').options[$('printer').selectedIndex].value + "\n" + query + "\n",
 			onSuccess: function (response) {
 				try {
 					var json = response.responseText.evalJSON(true);
@@ -113,12 +104,38 @@ netrapUplink.prototype = {
 				// 				alert('AJAX: Failure: ' + response);
 			},
 		});
-		
 	},
 	refreshPrinterList: function() {
 		// TODO: json: listPrinters
 // 		this.sendCmd("TODO: listPrinters");
-		this.query("listPrinters");
+		var self = this;
+		var r = new Ajax.Request("json/printer-list", {
+			onSuccess: function (response) {
+				try {
+					var json = response.responseText.evalJSON(true);
+				} catch (e) {
+					alert(e);
+				}
+				// 				alert('AJAX: Success: ' + response);
+				if (json) {
+					if (json.printercount > 0) {
+						$('printer').options.length = 0;
+						for (var i = 0; i < json.printercount; i++) {
+							var printer = json.printers[i];
+							if (printer) {
+								var o = document.createElement('option');
+								o.setAttribute('value', printer.name);
+								o.innerHTML = printer.name;
+								$('printer').appendChild(o);
+							}
+						}
+					}
+				}
+			},
+			onFailure: function (response) {
+				// 				alert('AJAX: Failure: ' + response);
+			},
+		});
 	},
 	printerList: function() {
 		return this.printers;
