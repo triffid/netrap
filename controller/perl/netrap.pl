@@ -5,6 +5,8 @@ use strict;
 use Device::SerialPort;
 use IO::Select;
 use IO::Socket::INET;
+use JSON::PP;
+
 use Data::Dumper;
 
 my $httpport = 2560;
@@ -176,6 +178,14 @@ while (1) {
 							/^(enqueue|query)$/ && do {
 								$sock->{count} = 0;
 # 								printf "B:'%s'\n", $sock->{rxbuffer};
+								$request->{'CONTENT-LENGTH'} = 0 unless $request->{'CONTENT-LENGTH'};
+# 								printf("content length: %d\n", $request->{'CONTENT-LENGTH'});
+								if (!defined $sock->{headers}) {
+									$sock->{txbuffer} = sprintf("HTTP/%s 200 OK\nContent-type: application/json\nConnection: Close\n\n{\"status\":\"success\",\"replies\":[", $request->{version});
+									$WriteSelector->add($s);
+									$ReadSelector->remove($s);
+									$sock->{headers} = 1;
+								}
 								while ($sock->{rxbuffer} =~ s/^(\s*(.*?)\s*\r?\n)//is) {
 									my $line = $2;
 									$sock->{replies} = [] unless $sock->{replies};
@@ -186,7 +196,7 @@ while (1) {
 											if ($psock->{name} eq $printername) {
 												$sock->{printer} = $psock;
 												printf "%s: Printer %s selected.\n", $sock->{name}, $psock->{name};
-												push @{$sock->{replies}}, sprintf "Printer %s selected.", $psock->{name};
+# 												push @{$sock->{replies}}, sprintf "Printer %s selected.", $psock->{name};
 												last;
 											}
 										}
@@ -199,7 +209,7 @@ while (1) {
 	# 									printf "\"%s\": %d bytes\n", $1, length($1);
 										$request->{'CONTENT-LENGTH'} -= length($1);
 										# TODO: enqueue $line;
-										printf "ENQUEUE:\t%s\n", $line;
+# 										printf "ENQUEUE:\t%s\n", $line;
 										if ($sock->{printer}) {
 											$sock->{printer}->{requestor} = $sock;
 											$sock->{printer}->{txbuffer} .= "$line\n";
@@ -208,12 +218,6 @@ while (1) {
 										}
 	# 									printf "%s: %d\n", $sock->{remoteaddr}, $sock->{count};
 									}
-								}
-								$request->{'CONTENT-LENGTH'} = 0 unless $request->{'CONTENT-LENGTH'};
-								if ($request->{'CONTENT-LENGTH'} <= 0) {
-									$sock->{txbuffer} = sprintf("HTTP/%s 200 OK\nContent-type: application/json\nConnection: Close\n\n{\"status\":\"success\",\"replies\":[", $request->{version});
-									$WriteSelector->add($s);
-									$ReadSelector->remove($s);
 								}
 								if (@{$sock->{replies}}) {
 									my $reply = pop @{$sock->{replies}};
@@ -235,12 +239,13 @@ while (1) {
 							};
 							/^printer$/ && do {
 								$request->{'CONTENT-LENGTH'} = 0 unless $request->{'CONTENT-LENGTH'};
-								printf("content length: %d\n", $request->{'CONTENT-LENGTH'});
+# 								printf("content length: %d\n", $request->{'CONTENT-LENGTH'});
 								if (length($sock->{rxbuffer}) >= $request->{'CONTENT-LENGTH'}) {
 									# TODO: parse JSON properly
-									$sock->{rxbuffer} =~ s/:/=>/g;
+# 									$sock->{rxbuffer} =~ s/:/=>/g;
 									# WARNING: USE OF EVAL ON UNFILTERED USER INPUT IS DANGEROUS!
-									my $obj = eval($sock->{rxbuffer});
+									#my $obj = eval($sock->{rxbuffer});
+									my $obj = decode_json($sock->{rxbuffer});
 									my $printer;
 									if (($obj->{device} =~ /[\w\d]/) && (exists $obj->{port}) && do { printf "Trying to connect to %s:%d...\n", $obj->{device}, $obj->{port}; 1;} && ($printer = new IO::Socket::INET(PeerAddr => $obj->{device}, PeerPort => $obj->{port}, Proto => 'tcp'))) {
 										my $psck = new_PrinterSocket($printer, sprintf("%s:%d", $obj->{device}, $obj->{port}));
@@ -392,15 +397,15 @@ while (1) {
 				$reply =~ s/"/\\"/g;
 				$sock->{txbuffer} .= '"'.$reply.'",';
 				$sock->{count}-- if $reply =~ /^ok\b/;
-				printf "%s: #%d", $sock->{remoteaddr}, $sock->{count};
+# 				printf "%s: #%d", $sock->{remoteaddr}, $sock->{count};
 				if ($sock->{count} <= 0) {
-					print ", closing";
+# 					print ", closing";
 					$sock->{txbuffer} =~ s/,$//m;
 					$sock->{txbuffer} .= "]}\n";
 					$sock->{close} = 1;
 					undef $sock->{printer}->{requestor};
 				}
-				print "\n";
+# 				print "\n";
 				$WriteSelector->add($s);
 			}
 			else {

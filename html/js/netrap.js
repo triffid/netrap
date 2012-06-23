@@ -52,21 +52,9 @@ netrapUplink.prototype = {
 		var r = new Ajax.Request("json/enqueue", {
 			contentType: "text/plain",
 			parameters: this.queue.join("\n") + "\n",
-			onLoading: function (response) {
-// 				alert('AJAX: loading ' + response);
-			},
-			onLoaded: function (response) {
-// 				alert('AJAX: loaded ' + response);
-			},
-			onInteractive: function (response) {
-// 				alert('AJAX: interactive ' + response);
-			},
 			onSuccess: function (response) {
 				var json = response.responseText.evalJSON(true);
 // 				alert('AJAX: Success: ' + response);
-			},
-			onFailure: function (response) {
-// 				alert('AJAX: Failure: ' + response);
 			},
 		});
 		} catch (e) {
@@ -91,8 +79,9 @@ netrapUplink.prototype = {
 						var queries = response.request.body.split("\n");
 						for (var i = 0; i < json.replies.length; i++) {
 							$('log').value += "< " + json.replies[i] + "\n";
+							$('log').scrollTop = $('log').scrollHeight;
 							try {
-							self.parseReply(queries[i], json.replies[i]);
+								self.parseReply(queries[i], json.replies[i]);
 							} catch (e) {
 								alert(e);
 							}
