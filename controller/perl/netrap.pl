@@ -13,6 +13,7 @@ my $httpport = 2560;
 my $netrapport = 2561;
 
 my $filesdir = 'html';
+my $uploaddir = 'html/upload';
 
 my $HTTPListenSocket = new IO::Socket::INET(LocalAddr => '0.0.0.0', LocalPort => $httpport, Proto => 'tcp', Listen => 8, ReuseAddr => 1, Blocking => 0) or die $!;
 my %HTTPListenSockets = ($HTTPListenSocket => {sock => $HTTPListenSocket});
@@ -161,7 +162,18 @@ while (1) {
 					elsif ($request->{uri} =~ /^\/json\/(\S+)/) {
 						# TODO: parse json request
 						my $jsonuri = $1;
+						my %parameters;
 						$sock->{jsonuri} = $jsonuri;
+						if ($jsonuri =~ s/\?(.*)//) {
+							my $parameters = $1;
+							for my $pair (split /&/, $parameters) {
+								my $value;
+								if ($pair =~ s/=(.*)//) {
+									$value = $1;
+								}
+								$parameters{$pair} = $value;
+							}
+						}
 # 						printf "Parsing JSON request for '%s'\n", $jsonuri;
 						for ($jsonuri) {
 							/^sockets$/ && do {
@@ -300,6 +312,49 @@ while (1) {
 								$WriteSelector->add($s);
 								$sock->{close} = 1;
 							};
+							/^file-upload$/ && (exists $parameters{name}) && do {
+								if (!exists $sock->{file}) {
+									my $startbyte = $parameters{start} or 0;
+									my $endbyte = $startbyte + $request->{'CONTENT-LENGTH'};
+									my $name = $parameters{name};
+									printf "File Upload: %s (%d+%d = %d)s\n", $name, $startbyte, $endbyte, $endbyte - $startbyte;
+									my $path = $uploaddir . '/' . $name;
+									if ($name !~ /^[a-z0-9]/i || $name =~ /[\/\|]/) {
+										$! = "invalid filename";
+									}
+									elsif (open($sock->{file}, '>>', $path)) {
+										$sock->{file}->close; undef $sock->{file};
+										open($sock->{file}, '+<', $path);
+										seek $sock->{file}, $startbyte, Fcntl::SEEK_SET;
+										$sock->{filename} = $name;
+										$sock->{filepath} = $path;
+										$sock->{start} = $startbyte;
+										$sock->{end} = $endbyte;
+										$sock->{written} = 0;
+		# 								$sock->{close} = 1;
+		# 								$WriteSelector->add($s);
+										$sock->{remaining} = $endbyte - $startbyte;
+									}
+									if (!exists $sock->{file}) {
+										printf("failed: $!\n");
+										$sock->{txbuffer} .= sprintf("HTTP/%s 200 OK\nContent-Type: application/json\nConnection: close\n\n{\"status\":\"failure\",\"error\":\"%s\"}\n", $request->{version}, $!);
+										$WriteSelector->add($s);
+										$sock->{close} = 1;
+									}
+								}
+								if ($sock->{file}) {
+									my $written = $sock->{file}->syswrite($sock->{rxbuffer});
+									substr($sock->{rxbuffer}, 0, $written, "");
+									$sock->{written} += $written;
+									$sock->{remaining} -= $written;
+									printf "Wrote %d to %s, %d remains\n", $written, $sock->{filename}, $sock->{remaining};
+									if ($sock->{remaining} <= 0) {
+										$sock->{txbuffer} .= sprintf("HTTP/%s 200 OK\nContent-Type: application/json\nConnection: close\n\n{\"status\":\"success\",\"filename\":\"%s\",\"start\":%d,\"end\":%d,\"written\":%d,\"length\":%d}\n", $request->{version}, $sock->{filename}, $sock->{start}, $sock->{end}, $sock->{written}, -s $sock->{filepath});
+										$sock->{close} = 1;
+										$WriteSelector->add($s);
+									}
+								}
+							}
 						}
 					}
 					elsif (-r $filesdir.$request->{uri}) {
