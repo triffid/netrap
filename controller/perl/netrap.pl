@@ -24,6 +24,7 @@ my %NetRapListenSockets = ($NetRapListenSocket => {sock => $NetRapListenSocket})
 my %HTTPSockets;
 my %NetRapSockets;
 my %PrinterSockets;
+my %FileSockets;
 
 my %sockets;
 
@@ -87,6 +88,63 @@ sub new_PrinterSocket {
 	$sock->{txbuffer} = "M115\nM114\nM503\n";
 	$sock->{name}     = $device;
 	return $sock;
+}
+
+sub new_FileSocket {
+	my $file = shift;
+	my $sock = new_socket($file, 'file');
+	my $name = shift;
+	my $path = shift;
+	$FileSockets{$file} = $sock;
+	$sock->{file} = $file;
+	$sock->{name} = $name;
+	$sock->{path} = $path;
+	$sock->{readbytes} = 0;
+	$sock->{totalbytes} = -s $path;
+	$sock->{paused} = 1;
+	return $sock;
+}
+
+sub findPrinterByName {
+	my $name = shift;
+	for my $printer (keys %PrinterSockets) {
+		if ($PrinterSockets{$printer}->{name} eq $name) {
+			return $PrinterSockets{$printer};
+		}
+	}
+	return undef;
+}
+
+sub jsonResponse {
+	my $sock = shift;
+	my $obj = shift;
+	my $s = $sock->{sock};
+	my $json = encode_json($obj) . "\n";
+	$sock->{txbuffer} .= sprintf("HTTP/1.1 200 OK\nContent-Type: application/json\nConnection: close\nContent-Length: %d\n\n%s", length($json), $json);
+	$WriteSelector->add($s);
+	$ReadSelector->remove($s);
+	$sock->{close} = 1;
+}
+
+sub jsonError {
+	my $sock = shift;
+	my $errormsg = shift;
+	my $s = $sock->{sock};
+	my $json = encode_json({'status' => 'failure', 'error' => $errormsg}) . "\n";
+	$sock->{txbuffer} .= sprintf("HTTP/1.1 400 Bad Request\nContent-Type: application/json\nConnection: close\nContent-Length: %d\n\n%s", length($json), $json);
+	$WriteSelector->add($s);
+	$ReadSelector->remove($s);
+	$sock->{close} = 1;
+}
+
+sub plainError {
+	my $sock = shift;
+	my $errormsg = shift;
+	my $s = $sock->{sock};
+	$sock->{txbuffer} .= sprintf("HTTP/1.1 400 Bad Request\nContent-Type: text/plain\nConnection: close\n\nError: %s\n", $errormsg);
+	$WriteSelector->add($s);
+	$ReadSelector->remove($s);
+	$sock->{close} = 1;
 }
 
 for my $s (values %HTTPListenSockets, values %NetRapListenSockets) {
@@ -154,10 +212,11 @@ while (1) {
 					$request->{uri} = '/index.html'
 						if $request->{uri} eq '/' && -r $filesdir.'/index.html';
 					if ($request->{uri} =~ /\/\.\./ || $request->{uri} =~ /\.\.\//) {
-						$sock->{txbuffer} = sprintf("HTTP/%s 400 Bad Request\nConnection: Close\nContent-Type: text/plain\n\n../ or /.. not allowed in URI\n", $request->{version});
-						$WriteSelector->add($s);
-						$ReadSelector->remove($s);
-						$sock->{'close'} = 1;
+# 						$sock->{txbuffer} = sprintf("HTTP/%s 400 Bad Request\nConnection: Close\nContent-Type: text/plain\n\n../ or /.. not allowed in URI\n", $request->{version});
+# 						$WriteSelector->add($s);
+# 						$ReadSelector->remove($s);
+# 						$sock->{'close'} = 1;
+						plainError($sock, "../ or /.. not allowed in URI");
 					}
 					elsif ($request->{uri} =~ /^\/json\/(\S+)/) {
 						# TODO: parse json request
@@ -201,17 +260,19 @@ while (1) {
 								while ($sock->{rxbuffer} =~ s/^(\s*(.*?)\s*\r?\n)//is) {
 									my $line = $2;
 									$sock->{replies} = [] unless $sock->{replies};
-									if ($line =~ /^select\s+(\S+)$/) {
-										my $printername = $1;
-										for my $printer (keys %PrinterSockets) {
-											my $psock = $PrinterSockets{$printer};
-											if ($psock->{name} eq $printername) {
-												$sock->{printer} = $psock;
-												printf "%s: Printer %s selected.\n", $sock->{name}, $psock->{name};
-# 												push @{$sock->{replies}}, sprintf "Printer %s selected.", $psock->{name};
-												last;
-											}
-										}
+									if ($line =~ /^(select|printer)\s+(\S+)$/) {
+										my $printername = $2;
+# 										for my $printer (keys %PrinterSockets) {
+# 											my $psock = $PrinterSockets{$printer};
+# 											if ($psock->{name} eq $printername) {
+# 												$sock->{printer} = $psock;
+# 												printf "%s: Printer %s selected.\n", $sock->{name}, $psock->{name};
+# # 												push @{$sock->{replies}}, sprintf "Printer %s selected.", $psock->{name};
+# 												last;
+# 											}
+# 										}
+										$sock->{printer} = findPrinterByName($printername);
+										#printf "%s: Printer %s selected.\n", $sock->{name}, $sock->{printer}->{name};
 										if (! defined $sock->{printer}) {
 											printf "%s: Printer %s not found.\n", $sock->{name}, $printername;
 											push @{$sock->{replies}}, sprintf "Printer %s not found.", $printername;
@@ -253,10 +314,6 @@ while (1) {
 								$request->{'CONTENT-LENGTH'} = 0 unless $request->{'CONTENT-LENGTH'};
 # 								printf("content length: %d\n", $request->{'CONTENT-LENGTH'});
 								if (length($sock->{rxbuffer}) >= $request->{'CONTENT-LENGTH'}) {
-									# TODO: parse JSON properly
-# 									$sock->{rxbuffer} =~ s/:/=>/g;
-									# WARNING: USE OF EVAL ON UNFILTERED USER INPUT IS DANGEROUS!
-									#my $obj = eval($sock->{rxbuffer});
 									my $obj = decode_json($sock->{rxbuffer});
 									my $printer;
 									if (($obj->{device} =~ /[\w\d]/) && (exists $obj->{port}) && do { printf "Trying to connect to %s:%d...\n", $obj->{device}, $obj->{port}; 1;} && ($printer = new IO::Socket::INET(PeerAddr => $obj->{device}, PeerPort => $obj->{port}, Proto => 'tcp'))) {
@@ -265,10 +322,11 @@ while (1) {
 										$WriteSelector->add($printer);
 										$psck->{address} = sprintf "%s:%d", $obj->{device}, $obj->{port};
 										printf "Added printer %s:%d\n", $obj->{device}, $obj->{port};
-										$sock->{txbuffer} .= sprintf("HTTP/%s 200 OK\nContent-Type: application/json\nConnection: close\n\n{\"status\":\"success\"}\n", $request->{version});
-										$WriteSelector->add($s);
+# 										$sock->{txbuffer} .= sprintf("HTTP/%s 200 OK\nContent-Type: application/json\nConnection: close\n\n{\"status\":\"success\"}\n", $request->{version});
+# 										$WriteSelector->add($s);
 										$WriteSelector->add($printer);
-										$sock->{close} = 1;
+# 										$sock->{close} = 1;
+										jsonResponse($sock, {"status" => "success", "name" => $psck->{name}});
 									}
 									elsif (($obj->{device} =~ /[\w\d]/) && (exists $obj->{baud}) && ($printer = new Device::SerialPort($obj->{device}))) {
 										$printer->baudrate($obj->{baud});
@@ -289,16 +347,17 @@ while (1) {
 										$WriteSelector->add($printer);
 
 										printf "Added printer %s @%d\n", $obj->{device}, $obj->{baud};
-										$sock->{txbuffer} .= sprintf("HTTP/%s 200 OK\nContent-Type: application/json\nConnection: close\n\n{\"status\":\"success\"}\n", $request->{version});
-										$WriteSelector->add($s);
-
-										$sock->{close} = 1;
+# 										$sock->{txbuffer} .= sprintf("HTTP/%s 200 OK\nContent-Type: application/json\nConnection: close\n\n{\"status\":\"success\"}\n", $request->{version});
+# 										$WriteSelector->add($s);
+# 										$sock->{close} = 1;
+										jsonResponse($sock, {'status' => 'success', 'name' => $psck->{name}});
 									}
 									else {
-										printf("failed: $!\n");
-										$sock->{txbuffer} .= sprintf("HTTP/%s 200 OK\nContent-Type: application/json\nConnection: close\n\n{\"status\":\"failure\",\"error\":\"%s\"}\n", $request->{version}, $!);
-										$WriteSelector->add($s);
-										$sock->{close} = 1;
+# 										printf("failed: $!\n");
+# 										$sock->{txbuffer} .= sprintf("HTTP/%s 200 OK\nContent-Type: application/json\nConnection: close\n\n{\"status\":\"failure\",\"error\":\"%s\"}\n", $request->{version}, $!);
+# 										$WriteSelector->add($s);
+# 										$sock->{close} = 1;
+										jsonError($sock, $!);
 									}
 								}
 							};
@@ -312,6 +371,60 @@ while (1) {
 								$WriteSelector->add($s);
 								$sock->{close} = 1;
 							};
+							/^printer-resume$/ && do {
+								$request->{'CONTENT-LENGTH'} = 0 unless $request->{'CONTENT-LENGTH'};
+								if (length($sock->{rxbuffer}) >= $request->{'CONTENT-LENGTH'}) {
+									my $obj = decode_json($sock->{rxbuffer});
+									my $printer = findPrinterByName($obj->{printer});
+									if ($printer) {
+										if ($printer->{openfile}) {
+											$printer->{openfile}->{paused} = 0;
+											$WriteSelector->add($printer->{sock});
+										}
+									}
+									else {
+										jsonError($sock, sprintf "printer %s not found", $obj->{printer});
+									}
+								}
+							};
+							/^printer-pause$/ && do {
+								$request->{'CONTENT-LENGTH'} = 0 unless $request->{'CONTENT-LENGTH'};
+								if (length($sock->{rxbuffer}) >= $request->{'CONTENT-LENGTH'}) {
+									my $obj = decode_json($sock->{rxbuffer});
+									my $printer = findPrinterByName($obj->{printer});
+									if ($printer) {
+										if ($printer->{openfile}) {
+											$printer->{openfile}->{paused} = 1;
+										}
+									}
+								}
+							};
+							/^file-open$/ && do {
+								$request->{'CONTENT-LENGTH'} = 0 unless $request->{'CONTENT-LENGTH'};
+								if (length($sock->{rxbuffer}) >= $request->{'CONTENT-LENGTH'}) {
+									my $obj = decode_json($sock->{rxbuffer});
+									my $name = $obj->{name};
+									my $path = $uploaddir.'/'.$parameters{name};
+									my $start = $obj->{start} or 0;
+									my $file;
+									if ($name !~ /[\/\|]/) {
+										if ((-r $path) && (open($file, '<', $path))) {
+											my $fsock = new_FileSocket($file, $name, $path);
+											if ($obj->{printer}) {
+												$fsock->{printer} = findPrinterByName($obj->{printer});
+												$fsock->{printer}->{openfile} = $fsock;
+											}
+										}
+									}
+									else {
+										printf("failed: $!\n");
+# 										$sock->{txbuffer} .= sprintf("HTTP/%s 200 OK\nContent-Type: application/json\nConnection: close\n\n{\"status\":\"failure\",\"error\":\"%s\"}\n", $request->{version}, "Invalid characters in filename");
+# 										$WriteSelector->add($s);
+# 										$sock->{close} = 1;
+										jsonError($sock, "Invalid characters in filename");
+									}
+								}
+							};
 							/^file-upload$/ && (exists $parameters{name}) && do {
 								if (!exists $sock->{file}) {
 									my $startbyte = $parameters{start} or 0;
@@ -322,24 +435,24 @@ while (1) {
 									if ($name !~ /^[a-z0-9]/i || $name =~ /[\/\|]/) {
 										$! = "invalid filename";
 									}
-									elsif (open($sock->{file}, '>>', $path)) {
-										$sock->{file}->close; undef $sock->{file};
-										open($sock->{file}, '+<', $path);
+									elsif (open($sock->{file}, '+>>', $path)) {
+# 										$sock->{file}->close; undef $sock->{file};
+# 										open($sock->{file}, '+<', $path);
 										seek $sock->{file}, $startbyte, Fcntl::SEEK_SET;
 										$sock->{filename} = $name;
 										$sock->{filepath} = $path;
 										$sock->{start} = $startbyte;
 										$sock->{end} = $endbyte;
 										$sock->{written} = 0;
-		# 								$sock->{close} = 1;
-		# 								$WriteSelector->add($s);
 										$sock->{remaining} = $endbyte - $startbyte;
+
 									}
 									if (!exists $sock->{file}) {
 										printf("failed: $!\n");
-										$sock->{txbuffer} .= sprintf("HTTP/%s 200 OK\nContent-Type: application/json\nConnection: close\n\n{\"status\":\"failure\",\"error\":\"%s\"}\n", $request->{version}, $!);
-										$WriteSelector->add($s);
-										$sock->{close} = 1;
+# 										$sock->{txbuffer} .= sprintf("HTTP/%s 200 OK\nContent-Type: application/json\nConnection: close\n\n{\"status\":\"failure\",\"error\":\"%s\"}\n", $request->{version}, $!);
+# 										$WriteSelector->add($s);
+# 										$sock->{close} = 1;
+										jsonError($sock, $!);
 									}
 								}
 								if ($sock->{file}) {
@@ -350,8 +463,16 @@ while (1) {
 									printf "Wrote %d to %s, %d remains\n", $written, $sock->{filename}, $sock->{remaining};
 									if ($sock->{remaining} <= 0) {
 										$sock->{txbuffer} .= sprintf("HTTP/%s 200 OK\nContent-Type: application/json\nConnection: close\n\n{\"status\":\"success\",\"filename\":\"%s\",\"start\":%d,\"end\":%d,\"written\":%d,\"length\":%d}\n", $request->{version}, $sock->{filename}, $sock->{start}, $sock->{end}, $sock->{written}, -s $sock->{filepath});
-										$sock->{close} = 1;
-										$WriteSelector->add($s);
+# 										$sock->{close} = 1;
+# 										$WriteSelector->add($s);
+										jsonResponse($sock, {
+												'status'   => 'success',
+												'filename' => $sock->{filename},
+												'start'    => $sock->{start},
+												'end'      => $sock->{end},
+												'written'  => $sock->{written},
+												'length'   => -s $sock->{filepath},
+											});
 									}
 								}
 							}
@@ -414,6 +535,21 @@ while (1) {
 						# TODO: find all sockets wanting to write to this printer
 					}
 				}
+			}
+		}
+		elsif (exists $FileSockets{$s}) {
+			my $sock = $FileSockets{$s};
+			if ($sock->{printer}) {
+				if (! $sock->{paused}) {
+					my $f = $sock->{file};
+					my $buf = <$f>;
+					chomp $buf;
+					undef $sock->{printer}->{requestor};
+					$sock->{printer}->{txbuffer} .= "$buf\n";
+					$WriteSelector->add($sock->{printer}->{sock});
+					$sock->{printer}->{openfile} = $sock;
+				}
+				$ReadSelector->remove($s);
 			}
 		}
 	}
@@ -497,6 +633,13 @@ while (1) {
 				$s->close();
 				delete $PrinterSockets{$s};
 				delete $sockets{$s};
+			}
+			elsif (($sock->{openfile}) && (!$sock->{openfile}->{paused})) {
+# 				my $line = <$sock->{openfile}->{sock}>;
+# 				chomp $line;
+# 				$sock->{txbuffer} .= "$line\n";
+# 				undef $sock->{requestor};
+				$ReadSelector->add($sock->{openfile}->{sock});
 			}
 			else {
 				# nothing to write, but not time to close either
