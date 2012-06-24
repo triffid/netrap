@@ -66,7 +66,7 @@ netrapUplink.prototype = {
 		var self = this;
 		var r = new Ajax.Request("json/query", {
 			contentType: "text/plain",
-			parameters: "select " + $('printer').options[$('printer').selectedIndex].value + "\n" + query + "\n",
+			parameters: "printer " + $('printer').options[$('printer').selectedIndex].value + "\n" + query + "\n",
 			onSuccess: function (response) {
 				try {
 					var json = response.responseText.evalJSON(true);
@@ -107,7 +107,7 @@ netrapUplink.prototype = {
 				}
 				// 				alert('AJAX: Success: ' + response);
 				if (json) {
-					if (json.printercount > 0) {
+					if (json.printercount >= 0) {
 						$('printer').options.length = 0;
 						for (var i = 0; i < json.printercount; i++) {
 							var printer = json.printers[i];
