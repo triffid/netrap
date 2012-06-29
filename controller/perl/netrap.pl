@@ -75,6 +75,7 @@ sub new_NetRapSocket {
 	$sock->{remoteport}      = (unpack('SnCCCC', $address))[1];
 	$sock->{name}            = sprintf "%s:%d", $sock->{remoteaddr}, $sock->{remoteport};
 	$sock->{replies}         = [];
+	$ReadSelector->add($newsocket);
 	return $sock;
 }
 
@@ -87,8 +88,10 @@ sub new_PrinterSocket {
 	$sock->{name}     = $device;
 	$sock->{linesw}   = 0;
 	$sock->{token}    = 1;
-	$sock->{txbuffer} = "M115\nM114\nM503\n";
+	$sock->{txbuffer} = "";
+	$sock->{txqueue}  = [["M115", undef],["M114", undef],["M105", undef],["M503", undef]];
 	$sock->{name}     = $device;
+	$WriteSelector->add($printer);
 	return $sock;
 }
 
@@ -153,16 +156,23 @@ sub parseLine {
 	my ($sock, $s, $line) = @_;
 	my $printer = $sock->{printer};
 	my $r = length($line);
+	printf "Parsing '%s'\n", $line;
 	if ($line =~ /^([A-Z][\d\.]*\s*)+$/) {
+		printf "looks like gcode\n";
 		# looks like gcode
 		if ($sock->{printer}) {
 			$sock->{printer}->{requestor} = $sock;
-			$sock->{printer}->{txbuffer} .= "$line\n";
-			$WriteSelector->add($sock->{printer}->{sock});
+			push @{$sock->{printer}->{txqueue}}, [$line, $sock];
+			$WriteSelector->add($sock->{printer}->{sock}) if $sock->{printer}->{token};
 			$sock->{count}++;
+		}
+		else {
+			# discard line- no printer to send it to!
+			# TODO: issue a warning
 		}
 	}
 	elsif ($line =~ /^(select|printer)\s+(\S+)$/) {
+		printf "Looks like a printer selection\n";
 		my $printername = $2;
 		chomp $printername;
 		$printer = findPrinterByName($printername);
@@ -175,7 +185,53 @@ sub parseLine {
 			push @{$sock->{replies}}, sprintf "Printer %s not found.", $printername;
 		}
 	}
+	elsif ($line =~ /^get\s+(\w+)$/) {
+		printf "looks like a parameter request\n";
+		my $selection = $1;
+		if ($printer->{$selection}) {
+			push @{$sock->{txqueue}}, [sprintf("%s's %s: %s", $printer->{name}, $selection, $printer->{$selection}), $sock];
+		}
+		else {
+			my $known = 0;
+			for ($selection) {
+				/^position$/ && do {
+					push @{$printer->{txqueue}}, ["M114", $sock];
+					$known = 1;
+				};
+				/^temperature$/ && do {
+					push @{$printer->{txqueue}}, ["M105", $sock];
+					$known = 1;
+				};
+			}
+			if ($known) {
+				push @{$sock->{txqueue}}, [sprintf("no %s, try again in a second", $selection), $sock];
+			}
+			else {
+				push @{$sock->{txqueue}}, [sprintf("no %s, and don't know how to request it", $selection), $sock];
+			}
+		}
+		$WriteSelector->add($sock->{sock});
+	}
+	elsif ($line =~ /^list\s+printers?$/) {
+		printf "looks like a printer list request\n";
+		if (keys %PrinterSockets) {
+			for (keys %PrinterSockets) {
+				my $printer = $PrinterSockets{$_};
+				push @{$sock->{txqueue}}, ["\t".$printer->{name}, $sock];
+			}
+			push @{$sock->{txqueue}}, ["End of list", $sock];
+		}
+		else {
+			push @{$sock->{txqueue}}, ["No printers", $sock];
+		}
+		$WriteSelector->add($sock->{sock});
+	}
+	elsif ($line =~ /^add\s+printer\s+(\S+)([\@\:])(\d+)$/) {
+		printf "looks like an add printer request\n";
+		# TODO: split code from json/printer into a function, call it here too
+	}
 	else {
+		printf "unrecognised line\n";
 		if ($sock->{printer}) {
 			$sock->{printer}->{requestor} = $sock;
 			$sock->{printer}->{txbuffer} .= "$line\n";
@@ -208,6 +264,19 @@ while (1) {
 	}
 
 	for my $s (@readsocket) {
+		my $sock = $sockets{$s};
+		my $read = 0;
+		if ($sock) {
+			my $buf;
+			$read = $s->sysread($buf, 4096);
+			$sock->{rxbuffer} .= $buf;
+			printf "(%2d)[%s] < %s\n", $read, $sock->{name}, $buf;
+			$sock->{read} += $read;
+			if ($read == 0) {
+				$sock->{close} = 1;
+				$WriteSelector->add($s);
+			}
+		}
 		if (exists $HTTPListenSockets{$s}) {
 			my ($newsocket, $address) = $s->accept();
 			new_HTTPSocket($newsocket, $address);
@@ -216,25 +285,26 @@ while (1) {
 		}
 		elsif (exists $NetRapListenSockets{$s}) {
 			my ($newsocket, $address) = $s->accept();
-			new_NetRapSocket($newsocket, $address);
+			my $newsockobj = new_NetRapSocket($newsocket, $address);
+			printf "Got connection from %s\n", $newsockobj->{name};
 			$newsocket->blocking(0);
 		}
 		elsif (exists $HTTPSockets{$s}) {
-			my $sock = $HTTPSockets{$s};
 			my $buf;
-			my $r = $s->sysread($buf, 1024);
-			$sock->{rxbuffer} .= $buf;
-			$sock->{read} += $r;
+# 			my $r = $s->sysread($buf, 1024);
+# 			$sock->{rxbuffer} .= $buf;
+# 			$sock->{read} += $r;
 # 			printf "READ:'%s'\n", $sock->{rxbuffer};
-			if ($r == 0) {
-				# socket closed
-				$ReadSelector->remove($s);
-				$WriteSelector->remove($s);
-				$ErrorSelector->remove($s);
-				delete $HTTPSockets{$s};
-				delete $sockets{$s};
-			}
-			else {
+# 			if ($read == 0) {
+# 				# socket closed
+# 				$ReadSelector->remove($s);
+# 				$WriteSelector->remove($s);
+# 				$ErrorSelector->remove($s);
+# 				delete $HTTPSockets{$s};
+# 				delete $sockets{$s};
+# 			}
+# 			else {
+			if ($read) {
 				if (($sock->{endofheaders} == 0) && ($sock->{rxbuffer} =~ /^([A-Z]+)\s+(\/\S*)\s+HTTP\/([\d\.]+).*\r?\n\r?\n/is)) {
 					my %request = (
 						'method' => $1,
@@ -547,24 +617,30 @@ while (1) {
 			}
 		}
 		elsif (exists $NetRapSockets{$s}) {
+			if ($sock->{rxbuffer} =~ s/^(.*?)\r?\n//s) {
+				my $line = $1;
+				printf "(%2d)[%s] <* %s\n", $read, $sock->{name}, $line;
+				parseLine($sock, $s, $line);
+			}
 		}
 		elsif (exists $PrinterSockets{$s}) {
-			my $sock = $PrinterSockets{$s};
-			my $buf;
-			my $r = $s->sysread($buf, 4096);
-			my $displaybuf = $buf; chomp $displaybuf;
-			printf "(%3d)[%s]< %s [in reply to: %s]\n", $r, $sock->{device}, $displaybuf, $sock->{lastline};
-			$sock->{rxbuffer} .= $buf;
-			$sock->{read} += $r;
-			if ($r == 0) {
-				# TODO: handle printer disconnection
-				$sock->{close} = 1;
-				$WriteSelector->add($s);
-			}
+# 			my $buf;
+# 			my $r = $s->sysread($buf, 4096);
+			my $displaybuf = $sock->{rxbuffer};
+			chomp $displaybuf;
+			printf "(%3d)[%s]< %s [in reply to: %s]\n", $read, $sock->{device}, $displaybuf, $sock->{lastline};
+# 			$sock->{rxbuffer} .= $buf;
+# 			$sock->{read} += $r;
+# 			if ($r == 0) {
+# 				# TODO: handle printer disconnection
+# 				$sock->{close} = 1;
+# 				$WriteSelector->add($s);
+# 				$ReadSelector->remove($s);
+# 			}
 			while ($sock->{rxbuffer} =~ s/^(.*?)\r?\n//s) {
 				my $reply = $1;
 				if ($sock->{requestor}) {
-					$sock->{requestor} = [] unless $sock->{requestor};
+# 					$sock->{requestor} = [] unless $sock->{requestor};
 					push @{$sock->{requestor}->{replies}}, $reply;
 					$WriteSelector->add($sock->{requestor}->{sock});
 				}
@@ -574,26 +650,36 @@ while (1) {
 					if (length($sock->{txbuffer})) {
 						$WriteSelector->add($s);
 					}
-					else {
+					elsif ($sock->{openfile}) {
 						# TODO: find all sockets wanting to write to this printer
+						$ReadSelector->add($sock->{openfile}->{sock});
 					}
 				}
 			}
 		}
 		elsif (exists $FileSockets{$s}) {
-			my $sock = $FileSockets{$s};
 			if ($sock->{printer}) {
 				if (! $sock->{paused}) {
-					my $f = $sock->{file};
-					my $buf = <$f>;
-					chomp $buf;
-					undef $sock->{printer}->{requestor};
-					$sock->{printer}->{txbuffer} .= "$buf\n";
-					$WriteSelector->add($sock->{printer}->{sock});
-					$sock->{printer}->{openfile} = $sock;
+					if ($sock->{rxbuffer} =~ s/^(.*?)\r?\n//s) {
+						my $line = $1;
+# 						undef $sock->{printer}->{requestor};
+# 						$sock->{printer}->{openfile} = $sock;
+# 						$sock->{printer}->{txbuffer} .= $line."\n";
+# 						$WriteSelector->add($sock->{printer}->{sock}) if $sock->{printer}->{token};
+						parseLine($sock, $s, $line);
+						if (eof($s)) {
+							undef $sock->{printer}->{openfile};
+							$sock->{close} = 1;
+							$WriteSelector->add($s);
+						}
+					}
 				}
-				$ReadSelector->remove($s);
 			}
+			else {
+				$sock->{close} = 1;
+				$WriteSelector->add($s);
+			}
+			$ReadSelector->remove($s);
 		}
 	}
 
@@ -602,15 +688,21 @@ while (1) {
 		my $written = 0;
 		my $sentdata = "";
 		if ($sock) {
+			printf "CanWrite %s\n", $sock->{name};
+# 			if ($PrinterSockets{$s}) {
+# 				die Dumper \$sock;
+# 			}
 			# general stuff common to all sockets
 			if (length($sock->{txbuffer})) {
 				$written = $s->syswrite($sock->{txbuffer});
 				$sentdata = substr($sock->{txbuffer}, 0, $written, "");
 				$sock->{written} += $written;
+				printf "(%2d)[%s] > %s\n", $written, $sock->{name}, $sentdata;
 			}
 			# check again, we may have emptied the buffer above
 			if (length($sock->{txbuffer}) == 0) {
 				if (@{$sock->{txqueue}}) {
+# 					printf "Queue shifting\n";
 					my $item = shift @{$sock->{txqueue}};
 					my ($line, $requestor) = @{$item};
 					$sock->{txbuffer} .= "$line\n";
@@ -625,6 +717,7 @@ while (1) {
 					delete $NetRapSockets{$s} if exists $NetRapSockets{$s};
 					delete $PrinterSockets{$s} if exists $PrinterSockets{$s};
 					delete $sockets{$s};
+					next;
 				}
 				else {
 					$WriteSelector->remove($s);
@@ -666,7 +759,7 @@ while (1) {
 		}
 		elsif (exists $PrinterSockets{$s}) {
 			if ($written) {
-				printf "(%3d)[%s]> %s", $written, $sock->{device}, $sentdata;
+# 				printf "(%2d)[%s]> %s", $written, $sock->{device}, $sentdata;
 				if ($sentdata =~ /\n/) {
 					$sock->{linesw}++;
 					$ReadSelector->add($s);
@@ -683,10 +776,6 @@ while (1) {
 			}
 			elsif (($sock->{openfile}) && (!$sock->{openfile}->{paused})) {
 				$ReadSelector->add($sock->{openfile}->{sock});
-				$WriteSelector->remove($s);
-			}
-			else {
-				# nothing to write, but not time to close either
 				$WriteSelector->remove($s);
 			}
 		}
