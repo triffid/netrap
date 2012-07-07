@@ -5,6 +5,7 @@ function netrapUplink(jsonuri) {
 
 	this.printers = [ 'default' ];
 	this.currentPrinter = 'default';
+	this.files = [];
 	this.temperatures = {
 		hotend: 0,
 		bed: 0,
@@ -124,6 +125,45 @@ netrapUplink.prototype = {
 			onFailure: function (response) {
 				// 				alert('AJAX: Failure: ' + response);
 			},
+		});
+	},
+	refreshFileList: function() {
+		var self = this;
+		var r = new Ajax.Request("json/file-list", {
+			onSuccess: function (response) {
+				try {
+					var json = response.responseText.evalJSON(true);
+				} catch (e) {
+					alert(e);
+				}
+				if (json) {
+					if (json.files.length) {
+						self.files = [];
+						while ($("FileList").childNodes.length) {
+							$("FileList").removeChild($("FileList").childNodes[0]);
+						}
+						for (var i = 0; i < json.files.length; i++) {
+							self.files.push(json.files[i]);
+							var li = document.createElement('li');
+							var a = document.createElement('a');
+							a.innerHTML = json.files[i]['name'];
+							a.href = '#file=' + json.files[i]['name'];
+							a.observe('click', function() {
+								alert(this.innerHTML);
+							});
+							li.appendChild(a);
+							var sz = document.createElement('div');
+							sz.className = 'filesize';
+							sz.innerHTML = json.files[i]['size'];
+							li.appendChild(sz);
+							$("FileList").appendChild(li);
+						}
+					}
+				}
+			},
+			onFailure: function (response) {
+				alert('AJAX: Failure: ' + response);
+			}
 		});
 	},
 	printerList: function() {

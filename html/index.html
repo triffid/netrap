@@ -18,26 +18,63 @@
 		</div>
 
 		<br class="clear" />
-
-		<table>
-			<tr><td>
-				<canvas id="jogXYCanvas" width="247" height="242" style="width: 247px; height: 242px; background-image: url('images/control_xy.png'); background-repeat: none; float:left;"></canvas>
+		<div class="tabs" id="tabbar"><div class="tabbutton" id="PrinterTabButton">Printer</div><div class="tabbutton" id="FilesTabButton">Files</div></div>
+		<br class="clear" />
+		<div class="tabcontent" id="PrinterTab" name="Printer">
+			<table>
+				<tr><td>
+					<canvas id="jogXYCanvas" width="247" height="242" style="width: 247px; height: 242px; background-image: url('images/control_xy.png'); background-repeat: none; float:left;"></canvas>
+					</td><td>
+					<canvas id="jogZCanvas" width="59" height="242" style="width: 59px; height: 242px; background-image: url('images/control_z.png'); background-repeat: none; float:left;"></canvas>
 				</td><td>
-				<canvas id="jogZCanvas" width="59" height="242" style="width: 59px; height: 242px; background-image: url('images/control_z.png'); background-repeat: none; float:left;"></canvas>
-			</td><td>
-				<canvas id="jogECanvas" width="59" height="242" style="width: 59px; height: 242px; background-image: url('images/control_e.png'); background-repeat: none; float:left;"></canvas>
-			</td><td>
-				<textarea id="log" rows="16" cols="40" readonly="readonly"></textarea><br />
-				<form id="manual_entry">
-					<input type="text" id="send" style="width: 80%; float: left;" />
-					<input type="submit" id="sendBtn" value="Send" />
-				</form>
-			</td></tr>
-		</table>
+					<canvas id="jogECanvas" width="59" height="242" style="width: 59px; height: 242px; background-image: url('images/control_e.png'); background-repeat: none; float:left;"></canvas>
+				</td><td>
+					<textarea id="log" rows="16" cols="40" readonly="readonly"></textarea><br />
+					<form id="manual_entry">
+						<input type="text" id="send" style="width: 80%; float: left;" />
+						<input type="submit" id="sendBtn" value="Send" />
+					</form>
+				</td></tr>
+			</table>
+		</div>
+		<div class="tabcontent" id="FilesTab" name="Files">
+			<input type="file" id="fileupload" multiple="multiple" />
+			<ul class="FileList" id="FileList"></ul>
+		</div>
 
 		<script type="text/javascript">
 			document.observe('dom:loaded', function() {
 				var netrap = new netrapUplink('netrap-json');
+
+				function tabActivate(n) {
+	// 				alert(n);
+					var tabbar = $("tabbar");
+					for (var i = 0; i < tabbar.children.length; i++) {
+						var regex = /^(.*)Button/.exec(tabbar.children[i].id);
+						if (regex) {
+							if (i == n) {
+								$(regex[1]).className = "tabcontent current";
+								tabbar.children[i].className = "tabbutton current";
+								if (/FilesTabButton/.test(tabbar.children[i].id)) {
+									netrap.refreshFileList();
+								}
+							}
+							else {
+								$(regex[1]).className = "tabcontent hidden";
+								tabbar.children[i].className = "tabbutton";
+							}
+						}
+					}
+				}
+
+				var tabbar = $("tabbar");
+				for (var i = 0; i < tabbar.children.length; i++) {
+					tabbar.children[i].tabindex = i;
+					tabbar.children[i].observe("click", function() {
+						tabActivate(this.tabindex);
+					});
+				}
+				tabActivate(0);
 
 				try {
 					var jogXY = new JogXY($('jogXYCanvas'));
@@ -88,13 +125,15 @@
 				$('manual_entry').onsubmit = function() {
 					var send = $('send');
 					if (send.value) {
-						send.value = send.value.toUpperCase();
+						send.value = send.value;
 						$('log').value += "> " + send.value + "\n";
 						netrap.query(send.value);
 					}
 					send.value = "";
 					return false;
 				};
+
+				netrap.refreshPrinterList();
 			});
 		</script>
 	</body>
