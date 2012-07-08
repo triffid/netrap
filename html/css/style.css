@@ -18,6 +18,7 @@ div.toolbar > div {
 	background-color: #EEF;
 	border-top: none;
 	top: -1px;
+	min-height: 300px
 }
 
 .tabcontent.hidden {
