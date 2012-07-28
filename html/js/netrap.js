@@ -175,6 +175,32 @@ netrapUplink.prototype = {
 	selectedPrinter: function() {
 		return this.currentPrinter;
 	},
+	addSerialPrinter: function(device, baud) {
+		var self = this;
+		var r = new Ajax.Request("json/printer", {
+			contentType: "application/json",
+			parameters: '{"device":"' + device + '","baud":' + math.parseInt(baud) + '}',
+			onSuccess: function(response) {
+				self.refreshPrinterList();
+			},
+			onFailure: function(response) {
+				alert("Could not add Serial Printer " + device + ": " + response.responseText);
+			}
+		});
+	},
+	addTCPPrinter: function(device, port) {
+		var self = this;
+		var r = new Ajax.Request("json/printer", {
+			contentType: "application/json",
+			parameters: '{"device":"' + device + '","port":' + math.parseInt(port) + '}',
+			onSuccess: function(response) {
+				self.refreshPrinterList();
+			},
+			onFailure: function(response) {
+				alert("Could not add TCP Printer " + device + ": " + response.responseText);
+			}
+		});
+	},
 	refreshTemperatureList: function() {
 		this.query('M105');
 	},

@@ -11,10 +11,12 @@
 	</head>
 	<body>
 		<div class="toolbar">
-			<div><span>Printer:</span><select id="printer"><option value="0">A1001NCz</option></select><input type="button" id="refreshPrinters" value="R" /></div>
+			<div><span>Printer:</span><select id="printer"><option value="0">A1001NCz</option></select><input type="button" id="refreshPrinters" value="R" /><input type="button" id="addPrinter" value="+" /></div>
 			<div><input type="checkbox" id="monitor" /><span label="monitor">Monitor Printer</span></div>
-			<div><input type="button" id="getpos" value="Get Position" /></div>
-			<div><input type="button" id="clearlog" value="Clear Log" /></div>
+			<div><input type="button" id="getpos" value="Get Pos" /></div>
+			<div><input type="button" id="gettemp" value="Get Temp" /></div>
+			<div><input type="button" id="turnon" value="On" style="background-color: #8D8;" /></div>
+			<div><input type="button" id="turnoff" value="Off" style="background-color: #D88;" /></div>
 		</div>
 
 		<br class="clear" />
@@ -37,6 +39,7 @@
 					<form id="manual_entry">
 						<input type="text" id="send" style="width: 80%; float: left;" />
 						<input type="submit" id="sendBtn" value="Send" />
+						<input type="button" id="clearlog" value="Clear" />
 					</form>
 				</td></tr>
 			</table>
@@ -139,6 +142,19 @@
 					send.value = "";
 					return false;
 				};
+
+				$('gettemp').observe('click', function() {
+					$('log').value += "> M105\n";
+					netrap.query("M105");
+				});
+				$('turnon').observe('click', function() {
+					$('log').value += "> M80\n";
+					netrap.query("M80");
+				});
+				$('turnoff').observe('click', function() {
+					$('log').value += "> M81\n";
+					netrap.query("M81");
+				});
 
 				netrap.refreshPrinterList();
 			});
