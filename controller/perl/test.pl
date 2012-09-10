@@ -27,5 +27,8 @@ my $fm = new Netrap::FlowManager([$fs, $ys], [$os]);
 # $fm->addFeeder($s);
 
 while (Netrap::Socket::Select()) {
-    exit 0 if (keys %{$fm->{feeders}}) == 0 && $os->canwrite();
+    if ((keys %{$fm->{feeders}}) == 0 && $os->canwrite()) {
+        printf "All finished\n";
+        exit 0;
+    }
 }
