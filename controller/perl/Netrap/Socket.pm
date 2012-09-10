@@ -1,5 +1,7 @@
 package Netrap::Socket;
 
+use strict;
+
 use IO::Select;
 use Data::Dumper;
 
@@ -13,7 +15,11 @@ our $lastPeriodicTime = time;
 
 # static class method
 sub Select {
+    return 0 if $ErrorSelector->handles() == 0;
+
+#     print Dumper [$ReadSelector, $WriteSelector, $ErrorSelector];
     my @SelectSockets = IO::Select::select($ReadSelector, $WriteSelector, $ErrorSelector, 15);
+#     print Dumper \@SelectSockets;
     if (@SelectSockets) {
         my @readsockets  = @{$SelectSockets[0]};
         my @writesockets = @{$SelectSockets[1]};
@@ -41,67 +47,114 @@ sub Select {
             $sockets{$_}->PeriodicCallback();
         }
     }
+
+    return 1;
 }
 
 sub new {
-	my $class = shift;
+    my $class = shift;
 
-	my $socket = shift or die "Must pass a socket to Netrap::Socket::new()";
+    my $socket = shift or die "Must pass a socket to Netrap::Socket::new()";
 
-	die "Not a filehandle: " . Dumper(\$socket) unless $socket->isa("IO::Handle");
+    die "Not a filehandle: " . Dumper(\$socket) unless $socket->isa("IO::Handle");
 
-	my $self = {
-		sock => $socket,
-		txqueue  => [],
-		replies  => [],
-		txbuffer => "",
-		rxbuffer => "",
-		sendfile => undef,
-		recvfile => undef,
-		close    => 0,
-		raw      => 0,
-		ReadSelector => $ReadSelector,
-		WriteSelector => $WriteSelector,
-		ErrorSelector => $ErrorSelector,
-	};
+    my $self = {
+        sock => $socket,
+        txqueue  => [],
+        replies  => [],
+        txbuffer => "",
+        rxbuffer => "",
+        sendfile => undef,
+        recvfile => undef,
+        close    => 0,
+        raw      => 0,
+        ReadSelector => $ReadSelector,
+        WriteSelector => $WriteSelector,
+        ErrorSelector => $ErrorSelector,
+        ReadNotify  => [],
+        WriteNotify => [],
+        ErrorNotify => [],
+        CloseNotify => [],
+    };
 
-	bless $self, $class;
+    bless $self, $class;
 
-	$sockets{$self->{sock}} = $self;
+    $sockets{$self->{sock}} = $self;
 
-	$ReadSelector->add($socket);
-	$ErrorSelector->add($socket);
+    $ReadSelector->add($socket);
+    $ErrorSelector->add($socket);
 
-	return $self;
+    return $self;
 }
 
 sub ReadSelectorCallback {
     my $self = shift;
+
+    if ($self->{close} && !$self->canread()) {
+        for (@{$self->{CloseNotify}}) {
+            my ($instance, $function) = @{$_};
+            $function->($instance, $self);
+        }
+
+        $ReadSelector->remove($self->{sock});
+        $WriteSelector->remove($self->{sock});
+        $ErrorSelector->remove($self->{sock});
+        delete $sockets{$self};
+        close($self->{sock});
+#         print "Closed\n";
+#         print Dumper \$self;
+    }
+
     my $buf;
     my $r = sysread($self->{sock}, $buf,4096);
-    $rxbuffer .= $buf;
+#     printf "Read %d bytes from %s\n", $r, $self->{sock}; #, $buf;
+    $self->{rxbuffer} .= $buf;
 
-    return if $self->{raw};
+    if (!$self->{raw}) {
+        while ($self->{rxbuffer} =~ s/^(.*?)\r?\n//e) {
+            push @{$self->{replies}}, $1;
+        }
+        if (@{$self->{replies}} > 0) {
+            $ReadSelector->remove($self->{sock});
+        }
+    }
+    else {
+        if (length($self->{rxbuffer})) {
+            $ReadSelector->remove($self->{sock});
+        }
+    }
 
-    while ($rxbuffer =~ s/^(.*?)\r?\n//e) {
-        push @replies, $1;
+    if ($r > 0) {
+        for (@{$self->{ReadNotify}}) {
+            my ($instance, $function) = @{$_};
+            $function->($instance, $self);
+        }
     }
-    if (@replies) {
-        $self->{ReadSelector}->remove($self->{sock});
-    }
+
+    return $r;
 }
 
 sub WriteSelectorCallback {
     my $self = shift;
+#     printf "CanWrite: %s\n", $self;
+
     if ((length($self->{txbuffer}) == 0) && (@{$self->{txqueue}})) {
-        $txbuffer .= (shift @{$self->{txqueue}})."\n";
+#         printf "Filling txbuffer from txqueue\n";
+        $self->{txbuffer} .= (shift @{$self->{txqueue}})."\n";
     }
     if (length($self->{txbuffer})) {
         my $w = syswrite($self->{sock}, $self->{txbuffer});
-        substr($self->{txbuffer}, 0, $w, "");
+#         printf "Wrote %d bytes: %s\n", $w,
+            substr($self->{txbuffer}, 0, $w, "");
+        if ($w > 0) {
+            for (@{$self->{WriteNotify}}) {
+                my ($instance, $function) = @{$_};
+                $function->($instance, $self);
+            }
+        }
     }
     if ((length($self->{txbuffer}) == 0) && (@{$self->{txqueue}} == 0)) {
-        $self->{WriteSelector}->remove($self->{sock});
+        $WriteSelector->remove($self->{sock});
     }
 }
 
@@ -116,26 +169,31 @@ sub PeriodicCallback {
 }
 
 sub write {
-	my $self = shift;
-	if ($self->{raw}) {
+    my $self = shift;
+    if ($self->{raw}) {
         $self->{txbuffer} .= join "", @_;
-	}
-	else {
+    }
+    else {
         push @{$self->{txqueue}}, @_;
-	}
-	$self->{WriteSelector}->add($self->{sock});
+    }
+    $self->{WriteSelector}->add($self->{sock});
 }
 
 sub canread {
     my $self = shift;
-    return length($self->{rxbuffer}) if $self->{raw};
-	return scalar @{$self->{replies}};
+    return 1 if @{$self->{replies}};
+    return 1 if length($self->{rxbuffer});
+    return 0;
 }
 
 sub canwrite {
     my $self = shift;
-    return length($self->{txbuffer}) == 0 if $self->{raw};
-    return @txqueue < 1;
+
+#     printf "CanWrite: %s", Dumper \$self;
+
+    return 0 if length($self->{txbuffer});
+    return 0 if @{$self->{txqueue}};
+    return 1;
 }
 
 sub read {
@@ -150,12 +208,17 @@ sub read {
 
 sub readline {
     my $self = shift;
-    $self->{ReadSelector}->add($self->{sock});
     if ($self->{raw}) {
         $self->{rxbuffer} =~ s/^(.*?\r?\n)//s;
+        $self->{ReadSelector}->add($self->{sock})
+            if length($self->{rxbuffer}) == 0;
         return $1;
     }
     else {
+        if (@{$self->{replies}} <= 1) {
+            $self->{ReadSelector}->add($self->{sock});
+#             print "Last Line read, re-listening\n";
+        }
         return shift @{$self->{replies}} or undef;
     }
 }
@@ -166,6 +229,30 @@ sub raw {
         $self->{raw} = (shift)?1:0;
     }
     return $self->{raw};
+}
+
+sub addReadNotify {
+    my $self = shift;
+    my ($instance, $function) = @_;
+    push @{$self->{ReadNotify}}, [$instance, $function];
+}
+
+sub addWriteNotify {
+    my $self = shift;
+    my ($instance, $function) = @_;
+    push @{$self->{WriteNotify}}, [$instance, $function];
+}
+
+sub addErrorNotify {
+    my $self = shift;
+    my ($instance, $function) = @_;
+    push @{$self->{ErrorNotify}}, [$instance, $function];
+}
+
+sub addCloseNotify {
+    my $self = shift;
+    my ($instance, $function) = @_;
+    push @{$self->{CloseNotify}}, [$instance, $function];
 }
 
 1;
