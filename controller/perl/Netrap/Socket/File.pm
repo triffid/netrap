@@ -1,5 +1,8 @@
 package Netrap::Socket::File;
 
+use strict;
+use vars qw(@ISA);
+
 use Netrap::Socket;
 
 our %FileSockets;

@@ -1,5 +1,7 @@
 package Netrap::Socket::Printer;
 
+use strict;
+
 use Netrap::Socket;
 
 our %PrinterSockets;
@@ -12,8 +14,6 @@ sub new {
 
     my $sock = shift;
 
-
-
     my $self = $class->SUPER::new($sock);
 
     $self->{tokens} = 1;
@@ -22,6 +22,9 @@ sub new {
         current => {},
         target => {},
     };
+
+    $self->addEvent('PrinterResponse');
+    $self->addEvent('Token');
 
     bless $self, $class;
 
@@ -75,6 +78,7 @@ sub parseResponse {
         if ($self->canwrite()) {
             $self->{WriteSelector}->add($self->{sock});
         }
+        $self->fireEvent('Token', $self);
     }
     if (m#T\s*:\s*(\d+(\.\d+))(\s*/(\d+(\.\d+)?))#) {
         $self->{temps}->{current}->{nozzle} = $1;
@@ -109,6 +113,7 @@ sub ReadSelectorCallback {
     while ($self->canread()) {
         my $line = $self->readline();
         $self->parseResponse($line);
+        $self->fireEvent('PrinterResponse', $self, $line);
     }
 }
 

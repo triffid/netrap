@@ -1,5 +1,7 @@
 package Netrap::Socket::Netrap;
 
+use strict;
+
 use Netrap::Socket;
 
 our %NetrapSockets;

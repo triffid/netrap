@@ -1,5 +1,7 @@
 package Netrap::FlowManager;
 
+use strict;
+
 use Data::Dumper;
 use IO::Select;
 use Netrap::Socket;
@@ -109,7 +111,7 @@ sub sinkRequestData {
             $sink->write($feeder->readline());
             shift @{$self->{feederOrder}};
             push @{$self->{feederOrder}}, $_;
-            return;
+            return $feeder;
         }
     }
 }
@@ -120,8 +122,9 @@ sub feederProvideData {
     my $feeder = shift;
     my $line = undef;
     my @l = @{$self->{sinkOrder}};
+    my $sink;
     for (@l) {
-        my $sink = $self->{sinks}->{$_};
+        $sink = $self->{sinks}->{$_};
         if ($sink->canwrite()) {
             if (!defined $line) {
                 $line = $feeder->readline();
@@ -131,6 +134,7 @@ sub feederProvideData {
             push @{$self->{sinkOrder}}, $_;
         }
     }
+    return $sink;
 }
 
 sub broadcast {

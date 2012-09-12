@@ -1,9 +1,11 @@
 package Netrap::Socket;
 
 use strict;
+use vars qw(@ISA);
 
 use IO::Select;
 use Data::Dumper;
+use EventDispatch;
 
 our %sockets;
 
@@ -51,6 +53,8 @@ sub Select {
     return 1;
 }
 
+@ISA = qw(Event);
+
 sub new {
     my $class = shift;
 
@@ -71,13 +75,19 @@ sub new {
         ReadSelector => $ReadSelector,
         WriteSelector => $WriteSelector,
         ErrorSelector => $ErrorSelector,
-        ReadNotify  => [],
-        WriteNotify => [],
-        ErrorNotify => [],
-        CloseNotify => [],
+#         ReadNotify  => [],
+#         WriteNotify => [],
+#         ErrorNotify => [],
+#         CloseNotify => [],
     };
 
     bless $self, $class;
+
+    $self->Event::init();
+    $self->addEvent('Read');
+    $self->addEvent('Write');
+    $self->addEvent('Error');
+    $self->addEvent('Close');
 
     $sockets{$self->{sock}} = $self;
 
@@ -91,10 +101,11 @@ sub ReadSelectorCallback {
     my $self = shift;
 
     if ($self->{close} && !$self->canread()) {
-        for (@{$self->{CloseNotify}}) {
-            my ($instance, $function) = @{$_};
-            $function->($instance, $self);
-        }
+#         for (@{$self->{CloseNotify}}) {
+#             my ($instance, $function) = @{$_};
+#             $function->($instance, $self);
+#         }
+        $self->fireEvent('Close', $self);
 
         $ReadSelector->remove($self->{sock});
         $WriteSelector->remove($self->{sock});
@@ -125,10 +136,11 @@ sub ReadSelectorCallback {
     }
 
     if ($r > 0) {
-        for (@{$self->{ReadNotify}}) {
-            my ($instance, $function) = @{$_};
-            $function->($instance, $self);
-        }
+#         for (@{$self->{ReadNotify}}) {
+#             my ($instance, $function) = @{$_};
+#             $function->($instance, $self);
+#         }
+        $self->fireEvent('Read', $self);
     }
 
     return $r;
@@ -147,10 +159,11 @@ sub WriteSelectorCallback {
 #         printf "Wrote %d bytes: %s\n", $w,
             substr($self->{txbuffer}, 0, $w, "");
         if ($w > 0) {
-            for (@{$self->{WriteNotify}}) {
-                my ($instance, $function) = @{$_};
-                $function->($instance, $self);
-            }
+#             for (@{$self->{WriteNotify}}) {
+#                 my ($instance, $function) = @{$_};
+#                 $function->($instance, $self);
+#             }
+            $self->fireEvent('Write', $self);
         }
     }
     if ((length($self->{txbuffer}) == 0) && (@{$self->{txqueue}} == 0)) {
@@ -161,6 +174,7 @@ sub WriteSelectorCallback {
 sub ErrorSelectorCallback {
     my $self = shift;
     printf stderr "Unhandled Error on socket %s\n", $self;
+    $self->fireEvent('Error', $self);
     delete $sockets{$self};
 }
 
@@ -233,26 +247,30 @@ sub raw {
 
 sub addReadNotify {
     my $self = shift;
-    my ($instance, $function) = @_;
-    push @{$self->{ReadNotify}}, [$instance, $function];
+#     my ($instance, $function) = @_;
+#     push @{$self->{ReadNotify}}, [$instance, $function];
+    $self->addReceiver('Read', @_);
 }
 
 sub addWriteNotify {
     my $self = shift;
-    my ($instance, $function) = @_;
-    push @{$self->{WriteNotify}}, [$instance, $function];
+#     my ($instance, $function) = @_;
+#     push @{$self->{WriteNotify}}, [$instance, $function];
+    $self->addReceiver('Write', @_);
 }
 
 sub addErrorNotify {
     my $self = shift;
-    my ($instance, $function) = @_;
-    push @{$self->{ErrorNotify}}, [$instance, $function];
+#     my ($instance, $function) = @_;
+#     push @{$self->{ErrorNotify}}, [$instance, $function];
+    $self->addReceiver('Error', @_);
 }
 
 sub addCloseNotify {
     my $self = shift;
-    my ($instance, $function) = @_;
-    push @{$self->{CloseNotify}}, [$instance, $function];
+#     my ($instance, $function) = @_;
+#     push @{$self->{CloseNotify}}, [$instance, $function];
+    $self->addReceiver('Close', @_);
 }
 
 1;

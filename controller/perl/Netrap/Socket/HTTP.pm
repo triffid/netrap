@@ -1,5 +1,7 @@
 package Netrap::Socket::HTTP;
 
+use strict;
+
 use Netrap::Socket;
 
 our %HTTPSockets;
@@ -85,6 +87,10 @@ sub processHTTPRequest() {
     }
 
     if ($url =~ m#^/json/(.*)#) {
+        my $jsonurl = $1;
+        if ($jsonurl =~ m#^(\w+)-(\w+)$#) {
+            my ($target, $action) = ($1, $2);
+        }
     }
     else {
         my $local = ".".$url;

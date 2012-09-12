@@ -8,6 +8,8 @@ use strict;
 
 use Data::Dumper;
 
+use EventDispatch;
+
 use IO::File;
 use Netrap::Socket::File;
 use Netrap::FlowManager;
