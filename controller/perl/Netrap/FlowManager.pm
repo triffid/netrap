@@ -7,6 +7,24 @@ use IO::Select;
 use Netrap::Socket;
 use List::Util qw(first);
 
+sub _addFeeder {
+    my $self = shift;
+    my $feeder = shift or die;
+    $self->{feeders}->{$feeder} = $feeder;
+    push @{$self->{feederOrder}}, "$feeder";
+    $feeder->addReceiver('Read',  $self, \&Netrap::FlowManager::feederProvideData);
+    $feeder->addReceiver('Close', $self, \&Netrap::FlowManager::removeFeeder);
+}
+
+sub _addSink {
+    my $self = shift;
+    my $sink = shift;
+    $self->{sinks}->{$sink} = $sink;
+    push @{$self->{sinkOrder}}, "$sink";
+    $sink->addReceiver('Write', $self, \&Netrap::FlowManager::sinkRequestData);
+    $sink->addReceiver('Close', $self, \&Netrap::FlowManager::removeSink);
+}
+
 sub new {
     my $proto = shift;
     my $class = ref($proto) || $proto;
@@ -31,18 +49,12 @@ sub new {
 
     if ($feeders && ref($feeders) eq 'ARRAY') {
         for (@{$feeders}) {
-            $self->{feeders}->{$_} = $_;
-            push @{$self->{feederOrder}}, "$_";
-            $_->addReadNotify($self, \&Netrap::FlowManager::feederProvideData);
-            $_->addCloseNotify($self, \&Netrap::FlowManager::removeFeeder);
+            _addFeeder($self, $_);
         }
     }
     if ($sinks && ref($sinks) eq 'ARRAY') {
         for (@{$sinks}) {
-            $self->{sinks}->{$_} = $_;
-            push @{$self->{sinkOrder}}, "$_";
-            $_->addWriteNotify($self, \&Netrap::FlowManager::sinkRequestData);
-            $_->addCloseNotify($self, \&Netrap::FlowManager::removeSink);
+            _addSink($self, $_);
         }
     }
 
@@ -54,10 +66,7 @@ sub addFeeder {
     my $self = shift;
     while (@_) {
         my $feeder = shift;
-        $self->{feeders}->{$feeder} = $feeder;
-        push @{$self->{feederOrder}}, "$feeder";
-        $feeder->addReadNotify($self, \&Netrap::FlowManager::feederProvideData);
-        $feeder->addCloseNotify($self, \&Netrap::FlowManager::removeFeeder);
+        _addFeeder($self, $feeder);
         if ($feeder->canread()) {
             $self->feederProvideData($feeder);
         }
@@ -79,10 +88,7 @@ sub addSink {
     my $self = shift;
     while (@_) {
         my $sink = shift;
-        $self->{sinks}->{$sink} = $sink;
-        push @{$self->{sinkOrder}}, "$sink";
-        $sink->addWriteNotify($self, \&Netrap::FlowManager::sinkRequestData);
-        $sink->addCloseNotify($self, \&Netrap::FlowManager::removeSink);
+        _addSink($self, $sink);
         if ($sink->canwrite()) {
             $self->sinkRequestData($sink);
         }
@@ -108,7 +114,14 @@ sub sinkRequestData {
     for (@l) {
         my $feeder = $self->{feeders}->{$_} or die Dumper \$self;
         if ($feeder->canread()) {
-            $sink->write($feeder->readline());
+            my $data;
+            if ($feeder->raw()) {
+                $data = $feeder->read();
+            }
+            else {
+                $data = $feeder->readline();
+            }
+            $sink->write($data);
             shift @{$self->{feederOrder}};
             push @{$self->{feederOrder}}, $_;
             return $feeder;
@@ -127,7 +140,12 @@ sub feederProvideData {
         $sink = $self->{sinks}->{$_};
         if ($sink->canwrite()) {
             if (!defined $line) {
-                $line = $feeder->readline();
+                if ($feeder->raw()) {
+                    $line = $feeder->read();
+                }
+                else {
+                    $line = $feeder->readline();
+                }
             }
             $sink->write($line);
             shift @{$self->{sinkOrder}};
