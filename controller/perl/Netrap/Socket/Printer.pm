@@ -1,6 +1,7 @@
 package Netrap::Socket::Printer;
 
 use strict;
+use vars qw(@ISA);
 
 use Netrap::Socket;
 
@@ -64,7 +65,7 @@ sub parseRequest {
         if ($w{"M"} == 104 || $w{"M"} == 109) {
             $self->{temps}->{target}->{nozzle} = $w{"S"};
         }
-        elif ($w{"M"} == 140 || $w{"M"} == 190) {
+        elsif ($w{"M"} == 140 || $w{"M"} == 190) {
             $self->{temps}->{target}->{bed} = $w{"S"};
         }
     }

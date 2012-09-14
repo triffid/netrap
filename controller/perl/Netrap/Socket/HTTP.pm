@@ -4,6 +4,9 @@ use strict;
 use vars qw(@ISA);
 
 use Netrap::Socket;
+use Netrap::Parse;
+use JSON::PP;
+
 use Data::Dumper;
 
 my %HTTPSockets;
@@ -78,18 +81,20 @@ sub ReadSelectorCallback {
         elsif ($self->{state} == STATE_GET_HEADERS) {
             my $line = $self->readline();
 #             printf "\tRead: \t%s\n", $line;
-            if ($line =~ m#^([\w\-\_]+)\s*:\s*.*?$#) {
+            if ($line =~ m#^([\w\-\_]+)\s*:\s*(.*?)$#) {
                 $self->{headers}->{lc $1} = $2;
             }
             if ($line =~ /^$/) {
-                return $self->processHTTPRequest();
+                return if $self->processHTTPRequest();
             }
         }
         # state 2 - receive data
         elsif ($self->{state} == STATE_GET_DATA) {
-            $self->{content} .= $self->read();
+            $self->{content} .= $self->read(4096);
+#             printf "Received %d bytes\n", length($self->{content});
+#             die Dumper \$self;
             if (length($self->{content}) >= $self->{headers}->{"content-length"}) {
-                return $self->processHTTPData();
+                return if $self->processHTTPRequest();
             }
         }
         else {
@@ -110,7 +115,18 @@ sub WriteSelectorCallback {
     }
 }
 
-sub processHTTPRequest() {
+sub sendHeader {
+    my $self = shift;
+
+    $self->raw(0);
+    $self->write(sprintf "HTTP/1.1 %s %s", $self->{headers}->{responsecode}, $self->{headers}->{responsedesc});
+    for (keys %{$self->{responseheaders}}) {
+        $self->write(sprintf "%s: %s", $_, $self->{responseheaders}->{$_});
+    }
+    $self->write("");
+}
+
+sub processHTTPRequest {
     my $self = shift;
 
     my $url = $self->{headers}->{url};
@@ -131,17 +147,31 @@ sub processHTTPRequest() {
         $self->{headers}->{responsedesc} = "Bad Request";
     }
     else {
-        if (exists $self->{headers}->{"content-length"}) {
-            $self->{headers}->{"content-remaining"} = $self->{headers}->{"content-length"};
-            $self->{state} = STATE_GET_DATA;
-            $self->{content} = "";
+#         die Dumper \$self;
+        if (defined $self->{headers}->{"content-length"}) {
+            if (length($self->{content}) < $self->{headers}->{"content-length"}) {
+#                 print "Waiting for data\n";
+                $self->{state} = STATE_GET_DATA;
+                $self->{content} = "";
+                $self->raw(1);
+#                 return 0;
+            }
         }
 
         if ($url =~ m#^/json/(.*)#) {
             my $jsonurl = $1;
+            return 0 if (lc $self->{headers}->{'content-type'} eq 'application/json') && (length($self->{content}) < $self->{headers}->{"content-length"});
             $self->{responseheaders}->{'Content-Type'} = 'application/json';
             if ($jsonurl =~ m#^(\w+)-(\w+)$#) {
                 my ($target, $action) = ($1, $2);
+                printf "Parsing %s:%s\n", $target, $action, $self->{content};
+#                 die Dumper Netrap::Parse::actions($target, $action);
+                if (Netrap::Parse::actions($target, $action)) {
+                    my $object;
+                    eval { $object = decode_json($self->{content}) } or undef $object;
+                    printf "Got %s\n", Data::Dumper->Dump([$object], [qw'json']) if $object;
+                    $content = encode_json Netrap::Parse::actions($target, $action)->($object);
+                }
             }
         }
         else {
@@ -182,11 +212,12 @@ sub processHTTPRequest() {
                     $self->{headers}->{responsedesc} = 'OK';
                     $filesocket->addReceiver('Close', $self, \&Netrap::Socket::HTTP::fileSendComplete);
 
-                    $self->write(sprintf "HTTP/1.1 %s %s", $self->{headers}->{responsecode}, $self->{headers}->{responsedesc});
-                    for (keys %{$self->{responseheaders}}) {
-                        $self->write(sprintf "%s: %s", $_, $self->{responseheaders}->{$_});
-                    }
-                    $self->write("");
+#                     $self->write(sprintf "HTTP/1.1 %s %s", $self->{headers}->{responsecode}, $self->{headers}->{responsedesc});
+#                     for (keys %{$self->{responseheaders}}) {
+#                         $self->write(sprintf "%s: %s", $_, $self->{responseheaders}->{$_});
+#                     }
+#                     $self->write("");
+                    $self->sendHeader();
                     $self->{state} = STATE_SEND_DATA;
                     $self->raw(1);
 
@@ -204,12 +235,8 @@ sub processHTTPRequest() {
             unless $content;
     }
 
-    $self->write(sprintf "HTTP/1.1 %s %s", $self->{headers}->{responsecode}, $self->{headers}->{responsedesc});
     $self->{responseheaders}->{'Content-Length'} = length($content) unless $self->{responseheaders}->{'Content-Length'};
-    for (keys %{$self->{responseheaders}}) {
-        $self->write(sprintf "%s: %s", $_, $self->{responseheaders}->{$_});
-    }
-    $self->write("");
+    $self->sendHeader();
     $self->write($content) if $content;
 
     $self->{state} = STATE_START;
@@ -217,6 +244,8 @@ sub processHTTPRequest() {
     my $log = "^remoteaddr;:^remoteport;\t^method; ^url; ^responsecode; ^size;\n";
     $log =~ s/\^(\w+)\;/$self->{headers}->{$1} || $self->{$1}/eg;
     print $log;
+
+    return 1;
 }
 
 sub processHTTPData() {

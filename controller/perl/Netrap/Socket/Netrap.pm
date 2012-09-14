@@ -14,11 +14,23 @@ sub new {
 
     my $self = $class->SUPER::new(@_);
 
+    $self->{printer} = undef;
+
     bless $self, $class;
 
     $NetrapSockets{$self->{sock}} = $self;
 
     return $self;
+}
+
+sub ReadSelectorCallback {
+    my $self = shift;
+
+    $self->SUPER::ReadSelectorCallback();
+
+    if ($self->canread()) {
+
+    }
 }
 
 1;

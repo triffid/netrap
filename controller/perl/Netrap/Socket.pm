@@ -130,10 +130,6 @@ sub ReadSelectorCallback {
     }
 
     if ($r > 0) {
-#         for (@{$self->{ReadNotify}}) {
-#             my ($instance, $function) = @{$_};
-#             $function->($instance, $self);
-#         }
         $self->fireEvent('Read', $self);
     }
 
@@ -254,6 +250,9 @@ sub raw {
         if ($self->{raw} && @{$self->{txqueue}} > 0) {
             $self->{txbuffer} .= join("\n", splice(@{$self->{txqueue}}, 0))."\n";
         }
+        if ($self->{raw} && @{$self->{replies}} > 0) {
+            $self->{rxbuffer} .= join("\n", splice(@{$self->{replies}}, 0))."\n";
+        }
     }
     return $self->{raw};
 }
@@ -289,29 +288,21 @@ sub close {
 
 sub addReadNotify {
     my $self = shift;
-#     my ($instance, $function) = @_;
-#     push @{$self->{ReadNotify}}, [$instance, $function];
     $self->addReceiver('Read', @_);
 }
 
 sub addWriteNotify {
     my $self = shift;
-#     my ($instance, $function) = @_;
-#     push @{$self->{WriteNotify}}, [$instance, $function];
     $self->addReceiver('Write', @_);
 }
 
 sub addErrorNotify {
     my $self = shift;
-#     my ($instance, $function) = @_;
-#     push @{$self->{ErrorNotify}}, [$instance, $function];
     $self->addReceiver('Error', @_);
 }
 
 sub addCloseNotify {
     my $self = shift;
-#     my ($instance, $function) = @_;
-#     push @{$self->{CloseNotify}}, [$instance, $function];
     $self->addReceiver('Close', @_);
 }
 
