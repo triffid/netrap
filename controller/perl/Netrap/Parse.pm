@@ -46,6 +46,14 @@ sub printer_restart {
 sub printer_stop {
 }
 
+sub printer_query {
+    my $object = shift;
+#     die Dumper $object;
+    my @lines = split /\r?\n/, $object->{content};
+    print "Enqueue:\n";
+    print "\t$_\n" for @lines;
+}
+
 sub file_list {
     my $object = shift;
     opendir D, $upload_dir or die $!;
@@ -92,6 +100,7 @@ my %actions = (
         'resume' => \&printer_resume,
         'restart' => \&printer_restart,
         'stop' => \&printer_stop,
+        'query' => \&printer_query,
     },
     'file' => {
         'list' => \&file_list,

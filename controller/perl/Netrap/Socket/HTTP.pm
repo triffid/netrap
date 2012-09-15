@@ -160,18 +160,25 @@ sub processHTTPRequest {
 
         if ($url =~ m#^/json/(.*)#) {
             my $jsonurl = $1;
-            return 0 if (lc $self->{headers}->{'content-type'} eq 'application/json') && (length($self->{content}) < $self->{headers}->{"content-length"});
+            return 0 if (length($self->{content}) < $self->{headers}->{"content-length"});
             $self->{responseheaders}->{'Content-Type'} = 'application/json';
+            $content = encode_json {'status' => 'error', 'error' => 'unrecognised target or action'};
             if ($jsonurl =~ m#^(\w+)-(\w+)$#) {
                 my ($target, $action) = ($1, $2);
                 printf "Parsing %s:%s\n", $target, $action, $self->{content};
 #                 die Dumper Netrap::Parse::actions($target, $action);
                 if (Netrap::Parse::actions($target, $action)) {
-                    my $object;
-                    eval { $object = decode_json($self->{content}) };
-                    printf "Got %s\n", Data::Dumper->Dump([$object], [qw'json']) if $object;
-                    $object = {%{$object // {}}, 'target' => $target, 'action' => $action, 'status' => 'OK' };
-                    my $response = Netrap::Parse::actions($target, $action)->($object) // {%{$object}, 'status' => 'error', 'error' => 'no handler'};
+                    my $object = {'target' => $target, 'action' => $action, 'status' => 'OK', 'content' => $self->{content} };
+#                     die Dumper \$self;
+                    if ($self->{content} && $self->{headers}->{'content-type'} =~ m#^application/json\b#) {
+                        eval {
+                            my $json = decode_json($self->{content});
+                            printf "Got %s\n", Data::Dumper->Dump([$json], [qw'json']) if $json;
+                            $object = {%{$object}, %{$json}};
+                        } or $object = {%{$object}, 'status' => 'error', 'error' => $!};
+                    }
+                    my $response = Netrap::Parse::actions($target, $action)->($object);
+                    $response = {%{$object}, 'status' => 'error', 'error' => 'no handler'} unless ref($response) eq 'HASH';
                     $content = encode_json $response;
                 }
             }
