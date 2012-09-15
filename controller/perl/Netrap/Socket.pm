@@ -246,7 +246,7 @@ sub readline {
 sub raw {
     my $self = shift;
     if (@_) {
-        $self->{raw} = (shift)?1:0;
+        $self->{raw} = shift // $self->{raw};
         if ($self->{raw} && @{$self->{txqueue}} > 0) {
             $self->{txbuffer} .= join("\n", splice(@{$self->{txqueue}}, 0))."\n";
         }

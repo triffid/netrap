@@ -14,6 +14,7 @@ use IO::File;
 use Netrap::Socket::File;
 use Netrap::FlowManager;
 use Netrap::Socket::HTTPListen;
+use Netrap::Socket::NetrapListen;
 
 # # my $f = new IO::File("< x.txt");
 # my $fs = new Netrap::Socket::File("x.txt");
@@ -28,6 +29,7 @@ use Netrap::Socket::HTTPListen;
 
 
 my $hl = new Netrap::Socket::HTTPListen(2560);
+my $nl = new Netrap::Socket::NetrapListen(2561);
 # $fm->addSink($os);
 # $fm->addFeeder($s);
 

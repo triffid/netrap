@@ -168,9 +168,11 @@ sub processHTTPRequest {
 #                 die Dumper Netrap::Parse::actions($target, $action);
                 if (Netrap::Parse::actions($target, $action)) {
                     my $object;
-                    eval { $object = decode_json($self->{content}) } or undef $object;
+                    eval { $object = decode_json($self->{content}) };
                     printf "Got %s\n", Data::Dumper->Dump([$object], [qw'json']) if $object;
-                    $content = encode_json Netrap::Parse::actions($target, $action)->($object);
+                    $object = {%{$object // {}}, 'target' => $target, 'action' => $action, 'status' => 'OK' };
+                    my $response = Netrap::Parse::actions($target, $action)->($object) // {%{$object}, 'status' => 'error', 'error' => 'no handler'};
+                    $content = encode_json $response;
                 }
             }
         }
