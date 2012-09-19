@@ -268,7 +268,7 @@ sub processHTTPRequest {
         $self->readline() while $self->canread();
     }
 
-    print Dumper \$self;
+#     print Dumper \$self;
 
     $self->{state} = STATE_START;
 
