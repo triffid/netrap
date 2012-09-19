@@ -101,8 +101,14 @@ sub new {
     return $self;
 }
 
+sub describe {
+    my $self = shift;
+    return sprintf "[Socket FD:%d]", $self->{sock}->fileno;
+}
+
 sub ReadSelectorCallback {
     my $self = shift;
+    my $suppressEvents = shift;
 
     return if $self->checkclose();
 
@@ -112,12 +118,18 @@ sub ReadSelectorCallback {
     if ($r == 0) {
         $self->close();
     }
-#     printf "Read %d bytes from %s\n", $r, $self->{sock}; #, $buf;
+    printf "Read %d bytes from %s\n", $r, $self->{sock}; #, $buf;
     $self->{rxbuffer} .= $buf;
 
     if (!$self->{raw}) {
         while ($self->{rxbuffer} =~ s/^(.*?)\r?\n//e) {
             push @{$self->{replies}}, $1;
+        }
+        my $nreplies = scalar(@{$self->{replies}}) + 1;
+        while (@{$self->{replies}} < $nreplies) {
+            $nreplies = @{$self->{replies}};
+#             printf "Read [%s]\n", $self->{replies}->[0];
+            $self->fireEvent('Read') unless $suppressEvents;
         }
         if (@{$self->{replies}} > 0) {
             $ReadSelector->remove($self->{sock}) unless $self->{close};
@@ -126,11 +138,8 @@ sub ReadSelectorCallback {
     else {
         if (length($self->{rxbuffer})) {
             $ReadSelector->remove($self->{sock}) unless $self->{close};
+            $self->fireEvent('Read');
         }
-    }
-
-    if ($r > 0) {
-        $self->fireEvent('Read', $self);
     }
 
     return $r;
@@ -138,7 +147,8 @@ sub ReadSelectorCallback {
 
 sub WriteSelectorCallback {
     my $self = shift;
-#     printf "CanWrite: %s\n", $self;
+    my $suppressEvents = shift;
+#     printf "CanWrite: %s Close: %d canread: %d canwrite %d\n", $self, $self->{close}, $self->canread(), $self->canwrite();
 
     return if $self->checkclose();
 
@@ -151,10 +161,13 @@ sub WriteSelectorCallback {
     }
     if (length($self->{txbuffer})) {
         $w = syswrite($self->{sock}, $self->{txbuffer});
-#         printf "Wrote %d bytes: %s\n", $w,
+#         printf "Wrote %d of %d bytes: %s\n", $w, length($self->{txbuffer}),
         $written = substr($self->{txbuffer}, 0, $w, "");
         if ($w > 0) {
-            $self->fireEvent('Write', $self, $w, $written);
+            $self->fireEvent('Write', $w, $written) unless $suppressEvents;
+        }
+        else {
+            $self->close();
         }
     }
     if (
@@ -165,13 +178,14 @@ sub WriteSelectorCallback {
         $WriteSelector->remove($self->{sock});
     }
 
-    return $written;
+    return $written if $w;
+    return undef;
 }
 
 sub ErrorSelectorCallback {
     my $self = shift;
     printf stderr "Unhandled Error on socket %s\n", $self;
-    $self->fireEvent('Error', $self);
+    $self->fireEvent('Error');
     delete $sockets{$self};
 }
 
@@ -226,6 +240,17 @@ sub read {
     return $self->readline();
 }
 
+sub peekline {
+    my $self = shift;
+    if ($self->{raw}) {
+        $self->{rxbuffer} =~ /^(.*?\r?\n)/;
+        return $1;
+    }
+    else {
+        return $self->{replies}->[0] or undef;
+    }
+}
+
 sub readline {
     my $self = shift;
     if ($self->{raw}) {
@@ -265,7 +290,7 @@ sub checkclose {
     if ($self->{close} && !$self->canread() && $self->canwrite()) {
         return 1 if $self->{isclosed};
 #         printf "%s:fireEvent('Close')\n", $self;
-        $self->fireEvent('Close', $self);
+        $self->fireEvent('Close');
 
         $ReadSelector->remove($self->{sock});
         $WriteSelector->remove($self->{sock});
@@ -273,7 +298,7 @@ sub checkclose {
         delete $sockets{$self};
         close($self->{sock});
         $self->{isclosed} = 1;
-#         print "Closed\n";
+#         printf "%s Closed\n", $self->describe();
         return 1;
     }
 #     printf "%d %d %d (%d %d)\n", $self->{close}, $self->canread(), $self->canwrite(), length($self->{txbuffer}), scalar(@{$self->{txqueue}});
@@ -284,26 +309,13 @@ sub close {
     my $self = shift;
     $self->{close} = 1;
     $WriteSelector->add($self->{sock});
+    $ReadSelector->remove($self->{sock});
 }
 
-sub addReadNotify {
+sub flushrx {
     my $self = shift;
-    $self->addReceiver('Read', @_);
-}
-
-sub addWriteNotify {
-    my $self = shift;
-    $self->addReceiver('Write', @_);
-}
-
-sub addErrorNotify {
-    my $self = shift;
-    $self->addReceiver('Error', @_);
-}
-
-sub addCloseNotify {
-    my $self = shift;
-    $self->addReceiver('Close', @_);
+    $self->{replies} = [];
+    $self->{rxbuffer} = '';
 }
 
 1;

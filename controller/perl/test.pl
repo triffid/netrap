@@ -34,8 +34,4 @@ my $nl = new Netrap::Socket::NetrapListen(2561);
 # $fm->addFeeder($s);
 
 while (Netrap::Socket::Select()) {
-#     if ((keys %{$fm->{feeders}}) == 0 && $os->canwrite()) {
-#         printf "All finished\n";
-#         exit 0;
-#     }
 }

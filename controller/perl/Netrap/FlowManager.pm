@@ -12,8 +12,8 @@ sub _addFeeder {
     my $feeder = shift or die;
     $self->{feeders}->{$feeder} = $feeder;
     push @{$self->{feederOrder}}, "$feeder";
-    $feeder->addReceiver('Read',  $self, \&Netrap::FlowManager::feederProvideData);
-    $feeder->addReceiver('Close', $self, \&Netrap::FlowManager::removeFeeder);
+    $feeder->addReceiver('Read',  $self, $self->can('feederProvideData'));
+    $feeder->addReceiver('Close', $self, $self->can('removeFeeder'));
 }
 
 sub _addSink {
@@ -21,8 +21,8 @@ sub _addSink {
     my $sink = shift;
     $self->{sinks}->{$sink} = $sink;
     push @{$self->{sinkOrder}}, "$sink";
-    $sink->addReceiver('Write', $self, \&Netrap::FlowManager::sinkRequestData);
-    $sink->addReceiver('Close', $self, \&Netrap::FlowManager::removeSink);
+    $sink->addReceiver('Write', $self, $self->can('sinkRequestData'));
+    $sink->addReceiver('Close', $self, $self->can('removeSink'));
 }
 
 sub new {
@@ -62,6 +62,11 @@ sub new {
     return $self;
 }
 
+sub describe {
+    my $self = shift;
+    return sprintf "[FlowManager: %d feeders, %d sinks]", scalar(@{$self->{feederOrder}}), scalar(@{$self->{sinkOrder}});
+}
+
 sub addFeeder {
     my $self = shift;
     while (@_) {
@@ -75,8 +80,11 @@ sub addFeeder {
 
 sub removeFeeder {
     my $self = shift;
-    while (@_) {
-        my $feeder = shift;
+    while (my $feeder = shift) {
+#         printf "removing feeder %s\n", $feeder;
+        $feeder->removeReceiver('Read', $self, $self->can('feederProvideData'));
+        $feeder->removeReceiver('Close', $self, $self->can('removeFeeder'));
+#         printf "Feeder receivers: %s\n", Dumper $feeder->{Events};
         my $index = first { $self->{feederOrder}->[$_] eq "$feeder" } 0..$#{$self->{feederOrder}};
         splice @{$self->{feederOrder}}, $index, 1
             if defined $index;
@@ -99,6 +107,8 @@ sub removeSink {
     my $self = shift;
     while (@_) {
         my $sink = shift;
+        $sink->removeReceiver('Write', $self, $self->can('sinkRequestData'));
+        $sink->removeReceiver('Close', $self, $self->can('removeSink'));
         my $index = first { $self->{sinkOrder}->[$_] eq "$sink" } 0..$#{$self->{sinkOrder}};
         splice @{$self->{sinkOrder}}, $index, 1
             if defined $index;
@@ -121,10 +131,12 @@ sub sinkRequestData {
             else {
                 $data = $feeder->readline();
             }
-            $sink->write($data);
-            shift @{$self->{feederOrder}};
-            push @{$self->{feederOrder}}, $_;
-            return $feeder;
+            if ($data) {
+                $sink->write($data);
+                push @{$self->{feederOrder}}, shift @{$self->{feederOrder}};
+#                 printf "sinkRequestData: got data from feeder %s\n", $feeder;
+                return $feeder;
+            }
         }
     }
 }
@@ -148,6 +160,7 @@ sub feederProvideData {
                 }
             }
             $sink->write($line);
+#             printf "Wrote \"%s\" to %s\n", $line, $sink->describe();
             shift @{$self->{sinkOrder}};
             push @{$self->{sinkOrder}}, $_;
         }

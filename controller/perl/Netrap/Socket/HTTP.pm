@@ -60,6 +60,11 @@ sub new {
     return $self;
 }
 
+sub describe {
+    my $self = shift;
+    return sprintf "[Socket HTTP %s]", $self->{name};
+}
+
 sub ReadSelectorCallback {
     my $self = shift;
     $self->SUPER::ReadSelectorCallback();
@@ -76,6 +81,12 @@ sub ReadSelectorCallback {
                 $self->{headers}->{httpversion} = $3;
                 $self->{state} = STATE_GET_HEADERS;
             }
+            else {
+                printf "Bad request from %s, closing\n", $self->describe();
+                $self->close();
+                $self->flushrx();
+                return;
+            }
         }
         # state 1 - collect headers
         elsif ($self->{state} == STATE_GET_HEADERS) {
@@ -84,8 +95,11 @@ sub ReadSelectorCallback {
             if ($line =~ m#^([\w\-\_]+)\s*:\s*(.*?)$#) {
                 $self->{headers}->{lc $1} = $2;
             }
-            if ($line =~ /^$/) {
+            elsif ($line =~ /^$/) {
                 return if $self->processHTTPRequest();
+            }
+            else {
+                $self->close();
             }
         }
         # state 2 - receive data
@@ -110,8 +124,8 @@ sub WriteSelectorCallback {
 
 #     printf "\tWrite:\t%s", $written;
 
-    if ($self->{flowmanager}) {
-        $self->{flowmanager}->sinkRequestData($self);
+    if ($self->{FileSendFlowManager}) {
+        $self->{FileSendFlowManager}->sinkRequestData($self);
     }
 }
 
@@ -138,7 +152,7 @@ sub processHTTPRequest {
     $self->{headers}->{responsedesc} = "OK";
     $self->{responseheaders} = {};
     $self->{responseheaders}->{'Content-Type'} = "text/html";
-    $self->{responseheaders}->{'Connection'} = "keep-alive";
+#     $self->{responseheaders}->{'Connection'} = "keep-alive";
 
     my $content = "";
 
@@ -150,7 +164,7 @@ sub processHTTPRequest {
 #         die Dumper \$self;
         if (defined $self->{headers}->{"content-length"}) {
             if (length($self->{content}) < $self->{headers}->{"content-length"}) {
-#                 print "Waiting for data\n";
+                print "Waiting for data\n";
                 $self->{state} = STATE_GET_DATA;
                 $self->{content} = "";
                 $self->raw(1);
@@ -167,7 +181,7 @@ sub processHTTPRequest {
                 my ($target, $action) = ($1, $2);
                 printf "Parsing %s:%s\n", $target, $action, $self->{content};
 #                 die Dumper Netrap::Parse::actions($target, $action);
-                if (Netrap::Parse::actions($target, $action)) {
+                if (my $callback = Netrap::Parse::actions($target, $action)) {
                     my $object = {'target' => $target, 'action' => $action, 'status' => 'OK', 'content' => $self->{content} };
 #                     die Dumper \$self;
                     if ($self->{content} && $self->{headers}->{'content-type'} =~ m#^application/json\b#) {
@@ -177,8 +191,9 @@ sub processHTTPRequest {
                             $object = {%{$object}, %{$json}};
                         } or $object = {%{$object}, 'status' => 'error', 'error' => $!};
                     }
-                    my $response = Netrap::Parse::actions($target, $action)->($object);
+                    my $response = $callback->($self, $object);
                     $response = {%{$object}, 'status' => 'error', 'error' => 'no handler'} unless ref($response) eq 'HASH';
+                    delete $response->{content};
                     $content = encode_json $response;
                 }
             }
@@ -214,12 +229,13 @@ sub processHTTPRequest {
                     $filesocket->raw(1);
                     my $fm = new Netrap::FlowManager();
                     $self->{responseheaders}->{'Content-Length'} = $filesocket->length();
+                    $self->{FileSendFlowManager} = $fm;
                     $fm->addSink($self);
                     $fm->addFeeder($filesocket);
                     undef $content;
                     $self->{headers}->{responsecode} = 200;
                     $self->{headers}->{responsedesc} = 'OK';
-                    $filesocket->addReceiver('Close', $self, \&Netrap::Socket::HTTP::fileSendComplete);
+                    $filesocket->addReceiver('Close', $self, $self->can('fileSendComplete'));
 
 #                     $self->write(sprintf "HTTP/1.1 %s %s", $self->{headers}->{responsecode}, $self->{headers}->{responsedesc});
 #                     for (keys %{$self->{responseheaders}}) {
@@ -247,6 +263,12 @@ sub processHTTPRequest {
     $self->{responseheaders}->{'Content-Length'} = length($content) unless $self->{responseheaders}->{'Content-Length'};
     $self->sendHeader();
     $self->write($content) if $content;
+    if ($self->{headers}->{'connection'} !~ /keep-alive/i) {
+        $self->close();
+        $self->readline() while $self->canread();
+    }
+
+    print Dumper \$self;
 
     $self->{state} = STATE_START;
 
@@ -264,11 +286,17 @@ sub processHTTPData() {
 
 sub fileSendComplete() {
     my $self = shift;
-#     printf "%s: File Send Complete %d\n", $self, $self->canread();
+    printf "%s: File Send Complete\n", $self;
     $self->raw(0);
-    $self->{headers} = {};
     $self->{state} = STATE_START;
-    delete $self->{flowmanager};
+    delete $self->{FileSendFlowManager};
+#     printf "Connection: %s\n", $self->{headers}->{'connection'};
+    if ($self->{headers}->{'connection'} !~ /keep-alive/i) {
+#         printf "Closing\n";
+        $self->close();
+        $self->flushrx();
+    }
+    $self->{headers} = {};
 }
 
 sub checkclose() {

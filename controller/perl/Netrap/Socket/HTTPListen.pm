@@ -21,9 +21,16 @@ sub new {
 
     my $self = $class->SUPER::new($sock);
 
+    $self->{port} = $port;
+
     bless $self, $class;
 
     return $self;
+}
+
+sub describe {
+    my $self = shift;
+    return sprintf "[Listen:HTTP port %d]", $self->{port};
 }
 
 sub ReadSelectorCallback {

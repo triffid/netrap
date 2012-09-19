@@ -30,6 +30,11 @@ sub new {
     return $self;
 }
 
+sub describe {
+    my $self = shift;
+    return sprintf "[Socket FILE %s]", $self->{filename};
+}
+
 sub canread {
     my $self = shift;
 
@@ -42,8 +47,7 @@ sub ReadSelectorCallback {
     my $self = shift;
     my $r = $self->SUPER::ReadSelectorCallback(@_);
     if ($r == 0) {
-        $self->{ReadSelector}->add($self->{sock});
-        $self->{close} = 1;
+        $self->close();
     }
 }
 

@@ -4,6 +4,9 @@ use strict;
 use vars qw(@ISA);
 
 use Netrap::Socket;
+use Netrap::PrinterManager;
+
+use Data::Dumper;
 
 our %PrinterSockets;
 
@@ -18,20 +21,29 @@ sub new {
     my $self = $class->SUPER::new($sock);
 
     $self->{tokens} = 1;
+    $self->{maxtoken} = 1;
     $self->{pos} = {};
     $self->{temps} = {
         current => {},
         target => {},
     };
-
     $self->addEvent('PrinterResponse');
     $self->addEvent('Token');
+
+    $self->{FlowManager} = new Netrap::PrinterManager();
+    $self->{FlowManager}->addSink($self);
 
     bless $self, $class;
 
     $PrinterSockets{$self->{sock}} = $self;
 
     return $self;
+}
+
+sub describe {
+    my $self = shift;
+    return sprintf "[Socket Printer %s]", $self->{name} if $self->{name};
+    return sprintf "[Socket Printer FD:%d]", $self->{sock}->fileno;
 }
 
 sub write {
@@ -69,39 +81,54 @@ sub parseRequest {
             $self->{temps}->{target}->{bed} = $w{"S"};
         }
     }
+
+    $self->SUPER::write($line);
 }
 
 sub parseResponse {
     my $self = shift;
     my $line = shift;
-    if (m#\bok\b#) {
-        $self->{tokens} += 1;
-        if ($self->canwrite()) {
-            $self->{WriteSelector}->add($self->{sock});
+    for ($line) {
+#         printf "Got %s in response to %s\n", $line, $self->{request};
+        if (m#\bok\b#i) {
+            $self->{tokens}++ if $self->{tokens} < $self->{maxtoken};
+            $self->fireEvent('Token');
+            if ($self->canwrite() == 0) {
+                $self->{WriteSelector}->add($self->{sock});
+            }
         }
-        $self->fireEvent('Token', $self);
-    }
-    if (m#T\s*:\s*(\d+(\.\d+))(\s*/(\d+(\.\d+)?))#) {
-        $self->{temps}->{current}->{nozzle} = $1;
-        $self->{temps}->{target}->{nozzle} = $4 if $4;
-    }
-    if (m#B\s*:\s*(\d+(\.\d+))(\s*/(\d+(\.\d+)?))#) {
-        $self->{temps}->{current}->{bed} = $1;
-        $self->{temps}->{target}->{bed} = $4 if $4;
-    }
-    if ($self->{request} =~ /\bM114\b/) {
-        if (m#([XYZE]):(\d(\.\d+))#) {
-            $self->{pos}->{$1} = $2;
+        if (m#T\s*:\s*(\d+(\.\d+))(\s*/(\d+(\.\d+)?))#) {
+            $self->{temps}->{current}->{nozzle} = $1;
+            $self->{temps}->{target}->{nozzle} = $4 if $4;
+        }
+        if (m#B\s*:\s*(\d+(\.\d+))(\s*/(\d+(\.\d+)?))#) {
+            $self->{temps}->{current}->{bed} = $1;
+            $self->{temps}->{target}->{bed} = $4 if $4;
+        }
+        if ($self->{request} =~ /\bM114\b/) {
+            if (m#([XYZE]):(\d(\.\d+))#) {
+                $self->{pos}->{$1} = $2;
+            }
         }
     }
 }
 
 sub WriteSelectorCallback {
     my $self = shift;
+#     printf "Printer %s:write\n", $self->{name};
     if ($self->{tokens} > 0) {
-        $self->SUPER::WriteSelectorCallback(@_);
+#         print Dumper \$self;
+        $self->{tokens}--;
+        my $wrote;
+#         printf "token; wrote %s",
+        $wrote = $self->SUPER::WriteSelectorCallback(1);
+#         printf "got %d tokens\n", $self->{tokens};
+        if ($self->{tokens} > 0) {
+            $self->fireEvent('Write', length($wrote), $wrote);
+        }
     }
     else {
+#         printf "no token\n";
         $self->{WriteSelector}->remove($self->{sock});
     }
 }
@@ -113,9 +140,15 @@ sub ReadSelectorCallback {
 
     while ($self->canread()) {
         my $line = $self->readline();
+        $self->fireEvent('PrinterResponse', $line);
         $self->parseResponse($line);
-        $self->fireEvent('PrinterResponse', $self, $line);
     }
+}
+
+sub canwrite {
+    my $self = shift;
+    return 0 if $self->{tokens} == 0;
+    return $self->SUPER::canwrite();
 }
 
 1;

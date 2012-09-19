@@ -5,7 +5,7 @@ use vars qw(@ISA);
 
 use IO::Socket::INET;
 
-use Netrap::Socket;
+use Netrap::Socket::Netrap;
 
 @ISA = qw(Netrap::Socket);
 
@@ -19,9 +19,16 @@ sub new {
 
     my $self = $class->SUPER::new($sock);
 
+    $self->{port} = $port;
+
     bless $self, $class;
 
     return $self;
+}
+
+sub describe {
+    my $self = shift;
+    return sprintf "[Listen:Netrap port %d]", $self->{port};
 }
 
 sub ReadSelectorCallback {
