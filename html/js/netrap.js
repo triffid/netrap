@@ -50,7 +50,7 @@ netrapUplink.prototype = {
 		// TODO: json: send commands
 // 		alert(this.queue.join("\n"));
 		try {
-		var r = new Ajax.Request("json/enqueue", {
+		var r = new Ajax.Request("json/printer-enqueue", {
 			contentType: "text/plain",
 			parameters: this.queue.join("\n") + "\n",
 			onSuccess: function (response) {
@@ -65,7 +65,7 @@ netrapUplink.prototype = {
 	},
 	query: function(query) {
 		var self = this;
-		var r = new Ajax.Request("json/query", {
+		var r = new Ajax.Request("json/printer-query", {
 			contentType: "text/plain",
 			parameters: "printer " + $('printer').options[$('printer').selectedIndex].value + "\n" + query + "\n",
 			onSuccess: function (response) {
@@ -108,14 +108,14 @@ netrapUplink.prototype = {
 				}
 				// 				alert('AJAX: Success: ' + response);
 				if (json) {
-					if (json.printercount >= 0) {
+					if (json.printers && json.printers.length >= 0) {
 						$('printer').options.length = 0;
-						for (var i = 0; i < json.printercount; i++) {
+						for (var i = 0; i < json.printers.length; i++) {
 							var printer = json.printers[i];
 							if (printer) {
 								var o = document.createElement('option');
-								o.setAttribute('value', printer.name);
-								o.innerHTML = printer.name;
+								o.setAttribute('value', printer);
+								o.innerHTML = printer;
 								$('printer').appendChild(o);
 							}
 						}
