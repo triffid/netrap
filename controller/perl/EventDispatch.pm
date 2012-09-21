@@ -4,6 +4,16 @@ use strict;
 
 use Data::Dumper;
 
+our @events;
+
+sub runEvents {
+    while (@events) {
+        my ($function, $instance, $self, $args) = @{shift @events};
+        my @args = @{$args};
+        $function->($instance, $self, @args);
+    }
+}
+
 sub new {
     my $class = shift;
 
@@ -104,7 +114,7 @@ sub fireEvent {
     $self->{Events} = {}
         unless exists $self->{Events};
 
-    printf "%s fires %s: ", $self->describe(), $eventName;
+    printf "%s fires %s\n", $self->describe(), $eventName;
 
 #     print Dumper $self->{Events}->{$eventName};
 
@@ -114,7 +124,8 @@ sub fireEvent {
         my ($instance, $function) = @{$_};
         $nreceivers++;
 #         printf "Receives:[%s->%s] ", $function, $instance->describe();
-        $function->($instance, $self, @_);
+#         $function->($instance, $self, @_);
+        push @events, [$function, $instance, $self, [@_]];
     }
 #     printf "\nEvent distributed to %d with %d receivers\n", $nreceivers, scalar(@{$self->{Events}->{$eventName}});
     return $nreceivers;

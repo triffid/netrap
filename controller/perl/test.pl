@@ -34,4 +34,5 @@ my $nl = new Netrap::Socket::NetrapListen(2561);
 # $fm->addFeeder($s);
 
 while (Netrap::Socket::Select()) {
+    EventDispatch::runEvents();
 }

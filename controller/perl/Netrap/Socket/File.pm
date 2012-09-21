@@ -3,6 +3,8 @@ package Netrap::Socket::File;
 use strict;
 use vars qw(@ISA);
 
+use Fcntl qw(SEEK_SET);
+
 use Netrap::Socket;
 
 our %FileSockets;
@@ -22,6 +24,7 @@ sub new {
 
     $self->{filename} = $filename;
     $self->{length} = -s $filename;
+    $self->{frozen} = 0;
 
     bless $self, $class;
 
@@ -39,16 +42,25 @@ sub canread {
     my $self = shift;
 
     return 0 if $self->{close};
+    return 0 if $self->{frozen};
 
     return $self->SUPER::canread(@_);
 }
 
 sub ReadSelectorCallback {
     my $self = shift;
+    return if $self->{frozen};
     my $r = $self->SUPER::ReadSelectorCallback(@_);
     if ($r == 0) {
         $self->close();
     }
+}
+
+sub seek {
+    my $self = shift;
+    my $position = shift;
+    seek $self->{sock}, $position, SEEK_SET;
+    $self->flushrx();
 }
 
 sub length {
@@ -64,6 +76,27 @@ sub tell {
 sub remaining {
     my $self = shift;
     return $self->{length} - (tell $self->{sock});
+}
+
+sub freeze {
+    my $self = shift;
+    my $freeze = shift;
+
+    if (defined $freeze && (($freeze)?1:0) != $self->{frozen}) {
+        if ($freeze) {
+            $self->{ReadSelector}->remove($self->{sock});
+            $self->{frozen} = 1;
+        }
+        else {
+            $self->{frozen} = 0;
+            $self->{ReadSelector}->add($self->{sock});
+            if ($self->canread()) {
+                $self->fireEvent('Read');
+            }
+        }
+    }
+
+    return $self->{frozen};
 }
 
 1;

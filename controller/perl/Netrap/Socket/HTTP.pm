@@ -9,18 +9,18 @@ use JSON::PP;
 
 use Data::Dumper;
 
-my %HTTPSockets;
-
-my %mime_types;
-
-@ISA = qw(Netrap::Socket);
-
 use constant {
     STATE_START => 0,
     STATE_GET_HEADERS => 1,
     STATE_GET_DATA => 2,
     STATE_SEND_DATA => 3,
 };
+
+our %HTTPSockets;
+
+my %mime_types;
+
+@ISA = qw(Netrap::Socket);
 
 sub new {
     my $proto = shift;
@@ -55,7 +55,7 @@ sub new {
         }
     }
 
-    $Netrap::Socket::HTTP::HTTPSockets->{$self->{sock}} = $self;
+    $HTTPSockets{$self->{sock}} = $self;
 
     return $self;
 }
@@ -299,11 +299,16 @@ sub fileSendComplete() {
     $self->{headers} = {};
 }
 
-sub checkclose() {
+sub checkclose {
     my $self = shift;
-    if ($self->SUPER::checkclose()) {
-#         printf "Connection from %s closed\n", $self->{name};
+
+    my $r = $self->SUPER::checkclose(@_);
+
+    if ($r == 1) {
+        delete $HTTPSockets{$self};
     }
+
+    return $r;
 }
 
 1;

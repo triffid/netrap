@@ -90,6 +90,7 @@ sub new {
     $self->EventDispatch::init();
     $self->addEvent('Read');
     $self->addEvent('Write');
+    $self->addEvent('CanWrite');
     $self->addEvent('Error');
     $self->addEvent('Close');
 
@@ -118,7 +119,7 @@ sub ReadSelectorCallback {
     if ($r == 0) {
         $self->close();
     }
-    printf "Read %d bytes from %s\n", $r, $self->{sock}; #, $buf;
+#     printf "Read %d bytes from %s\n", $r, $self->{sock}; #, $buf;
     $self->{rxbuffer} .= $buf;
 
     if (!$self->{raw}) {
@@ -171,11 +172,21 @@ sub WriteSelectorCallback {
         }
     }
     if (
-        (length($self->{txbuffer}) == 0) &&
-        (@{$self->{txqueue}} == 0) &&
-        ($self->{close} == 0)
+        (
+            $self->canwrite() &&
+            ($self->{close} == 0)
+        ) ||
+        (
+            ($self->{close}) &&
+            ($self->canread())
+        )
        ) {
         $WriteSelector->remove($self->{sock});
+    }
+    else {
+        printf "%d / %d & %d\n", $self->{close}, $self->canwrite(), $self->canread();
+        print Dumper [$self->{txbuffer}, $self->{txqueue}];
+        $self->fireEvent('CanWrite') unless $suppressEvents;
     }
 
     return $written if $w;
@@ -207,7 +218,7 @@ sub write {
 sub canread {
     my $self = shift;
     return 1 if @{$self->{replies}};
-    return 1 if length($self->{rxbuffer});
+    return 1 if length($self->{rxbuffer}) && $self->{raw};
     return 0;
 }
 
@@ -223,14 +234,11 @@ sub canwrite {
 
 sub read {
     my $self = shift;
-#     die "read";
     if ($self->{raw}) {
-#         die "raw read";
         my $max = shift;
         $max = 4096 unless looks_like_number($max);
         $max = length($self->{rxbuffer}) if $max > length($self->{rxbuffer});
         $max = 1 if $max == 0;
-#         printf "\t[max = %d]\n", $max;
         my $r = substr($self->{rxbuffer}, 0, $max, "");
         if (length($self->{rxbuffer}) == 0) {
             $ReadSelector->add($self->{sock});
@@ -262,7 +270,10 @@ sub readline {
     else {
         if (@{$self->{replies}} <= 1) {
             $self->{ReadSelector}->add($self->{sock});
-#             print "Last Line read, re-listening\n";
+            print "Last Line read, re-listening\n";
+            if ($self->{close}) {
+                $self->{WriteSelector}->add($self->{sock});
+            }
         }
         return shift @{$self->{replies}} or undef;
     }
@@ -288,7 +299,7 @@ sub checkclose {
 #     print "%s CheckClose: ", $self;
 
     if ($self->{close} && !$self->canread() && $self->canwrite()) {
-        return 1 if $self->{isclosed};
+        return 2 if $self->{isclosed};
 #         printf "%s:fireEvent('Close')\n", $self;
         $self->fireEvent('Close');
 

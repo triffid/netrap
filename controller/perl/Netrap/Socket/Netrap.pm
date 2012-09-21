@@ -53,15 +53,15 @@ sub ReadSelectorCallback {
         $parsed = 0;
 #         print "canread\n";
         my $line = $self->peekline();
-#         printf "peek: %s\n", $line;
+        printf "peek: %s\n", $line;
         for ($line) {
             /^([a-z]{3,})\s+([a-z]{3,}?)s?(\s+(.*?))?$/ && do {
                 $line = $self->readline();
                 my ($target, $action, $data) = ($2, $1, $4);
-#                 printf "%s:%s(%s)!\n", $target, $action, $data;
                 if (my $callback = Netrap::Parse::actions($target, $action)) {
 #                     printf "callback\n";
                     if (my $result = $callback->($self, $data)) {
+                        printf "%s:%s(%s)!\n", $target, $action, $data;
 #                         print Dumper \$result;
                         if (ref($result)) {
                             my $data = new Data::Dumper([$result]);
@@ -83,6 +83,10 @@ sub ReadSelectorCallback {
                         $parsed = 1;
                     }
                 }
+                if ($parsed == 0) {
+                    $self->write("err Unrecognized command: $target::$action");
+                    $parsed = 2;
+                }
             };
             /^exit$/ && do {
                 $line = $self->readline();
@@ -99,6 +103,18 @@ sub ReadSelectorCallback {
             last;
         }
     }
+}
+
+sub checkclose {
+    my $self = shift;
+
+    my $r = $self->SUPER::checkclose(@_);
+
+    if ($r == 1) {
+        delete $NetrapSockets{$self};
+    }
+
+    return $r;
 }
 
 1;

@@ -12,7 +12,7 @@ sub _addFeeder {
     my $feeder = shift or die;
     $self->{feeders}->{$feeder} = $feeder;
     push @{$self->{feederOrder}}, "$feeder";
-    $feeder->addReceiver('Read',  $self, $self->can('feederProvideData'));
+    $feeder->addReceiver('Read',  $self, $self->can('feederProvideData')) unless $self->{frozen};
     $feeder->addReceiver('Close', $self, $self->can('removeFeeder'));
 }
 
@@ -21,7 +21,7 @@ sub _addSink {
     my $sink = shift;
     $self->{sinks}->{$sink} = $sink;
     push @{$self->{sinkOrder}}, "$sink";
-    $sink->addReceiver('Write', $self, $self->can('sinkRequestData'));
+    $sink->addReceiver('CanWrite', $self, $self->can('sinkRequestData')) unless $self->{frozen};
     $sink->addReceiver('Close', $self, $self->can('removeSink'));
 }
 
@@ -44,6 +44,8 @@ sub new {
     $self->{sinks} = {};
     $self->{sinkOrder} = [];
     $self->{sinkLast};
+
+    $self->{frozen} = 0;
 
     my ($feeders, $sinks) = @_;
 
@@ -82,7 +84,7 @@ sub removeFeeder {
     my $self = shift;
     while (my $feeder = shift) {
 #         printf "removing feeder %s\n", $feeder;
-        $feeder->removeReceiver('Read', $self, $self->can('feederProvideData'));
+        $feeder->removeReceiver('Read', $self, $self->can('feederProvideData')) unless $self->{frozen};
         $feeder->removeReceiver('Close', $self, $self->can('removeFeeder'));
 #         printf "Feeder receivers: %s\n", Dumper $feeder->{Events};
         my $index = first { $self->{feederOrder}->[$_] eq "$feeder" } 0..$#{$self->{feederOrder}};
@@ -107,7 +109,7 @@ sub removeSink {
     my $self = shift;
     while (@_) {
         my $sink = shift;
-        $sink->removeReceiver('Write', $self, $self->can('sinkRequestData'));
+        $sink->removeReceiver('CanWrite', $self, $self->can('sinkRequestData')) unless $self->{frozen};
         $sink->removeReceiver('Close', $self, $self->can('removeSink'));
         my $index = first { $self->{sinkOrder}->[$_] eq "$sink" } 0..$#{$self->{sinkOrder}};
         splice @{$self->{sinkOrder}}, $index, 1
@@ -119,35 +121,47 @@ sub removeSink {
 sub sinkRequestData {
     my $self = shift;
     my $sink = shift;
-#     print "sinkRequestData\n";
+
+    printf "sinkRequestData\n";
+
+    return undef if $self->{frozen};
+
     my @l = @{$self->{feederOrder}};
     for (@l) {
         my $feeder = $self->{feeders}->{$_} or die Dumper \$self;
         if ($feeder->canread()) {
             my $data;
+            printf "%s can read; ", $feeder->describe();
             if ($feeder->raw()) {
                 $data = $feeder->read();
             }
             else {
                 $data = $feeder->readline();
             }
-            if ($data) {
+            printf "got '%s'\n", $data;
+            if (defined $data) {
                 $sink->write($data);
                 push @{$self->{feederOrder}}, shift @{$self->{feederOrder}};
-#                 printf "sinkRequestData: got data from feeder %s\n", $feeder;
+                printf "sinkRequestData: got data from feeder %s\n", $feeder;
                 return $feeder;
             }
+        }
+        else {
+            printf "%s can't read\n", $feeder->describe();
         }
     }
 }
 
 sub feederProvideData {
     my $self = shift;
-#     print "feederProvideData\n";
     my $feeder = shift;
+
+    return undef if $self->{frozen};
+
     my $line = undef;
     my @l = @{$self->{sinkOrder}};
     my $sink;
+
     for (@l) {
         $sink = $self->{sinks}->{$_};
         if ($sink->canwrite()) {
@@ -170,6 +184,47 @@ sub feederProvideData {
 
 sub broadcast {
     my $self = shift;
+}
+
+sub nSinks {
+    my $self = shift;
+    return scalar @{$self->{sinkOrder}};
+}
+
+sub nFeeders {
+    my $self = shift;
+    return scalar @{$self->{feederOrder}};
+}
+
+sub freeze {
+    my $self = shift;
+    my $frozen = shift;
+
+    return if (($frozen?1:0) == $self->{frozen});
+    if ($frozen) {
+        for (values %{$self->{feeders}}) {
+            $_->removeReceiver('Read',  $self, $self->can('feederProvideData'));
+        }
+        for (values %{$self->{sinks}}) {
+            $_->removeReceiver('CanWrite', $self, $self->can('sinkRequestData'));
+        }
+        $self->{frozen} = 1;
+    }
+    else {
+        $self->{frozen} = 0;
+        for (values %{$self->{feeders}}) {
+            $_->addReceiver('Read',  $self, $self->can('feederProvideData'));
+            if ($_->canread()) {
+                $self->feederProvideData($_);
+            }
+        }
+        for (values %{$self->{sinks}}) {
+            $_->addReceiver('CanWrite', $self, $self->can('sinkRequestData'));
+            if ($_->canwrite()) {
+                $self->sinkRequestData($_);
+            }
+        }
+    }
 }
 
 1;

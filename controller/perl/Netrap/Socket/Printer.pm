@@ -93,6 +93,7 @@ sub parseResponse {
         if (m#\bok\b#i) {
             $self->{tokens}++ if $self->{tokens} < $self->{maxtoken};
             $self->fireEvent('Token');
+            $self->fireEvent('CanWrite');
             if ($self->canwrite() == 0) {
                 $self->{WriteSelector}->add($self->{sock});
             }
@@ -115,20 +116,22 @@ sub parseResponse {
 
 sub WriteSelectorCallback {
     my $self = shift;
-#     printf "Printer %s:write\n", $self->{name};
+    my $wrote;
     if ($self->{tokens} > 0) {
-#         print Dumper \$self;
-        $self->{tokens}--;
-        my $wrote;
-#         printf "token; wrote %s",
         $wrote = $self->SUPER::WriteSelectorCallback(1);
-#         printf "got %d tokens\n", $self->{tokens};
+        printf "%s: >\t%s", $self->describe(), $wrote;
+        $wrote =~ s/;.*//;
+        $wrote =~ s/\(.*?\)//;
+        if ($wrote =~ /[a-z]/i) {
+            $self->{tokens}--;
+            printf "%s: >\t'%s'", $self->describe(), $wrote;
+        }
+        $self->fireEvent('Write', length($wrote), $wrote);
         if ($self->{tokens} > 0) {
-            $self->fireEvent('Write', length($wrote), $wrote);
+            $self->fireEvent('CanWrite');
         }
     }
-    else {
-#         printf "no token\n";
+    if ($self->{tokens} == 0 || $self->canwrite()) {
         $self->{WriteSelector}->remove($self->{sock});
     }
 }
@@ -140,8 +143,13 @@ sub ReadSelectorCallback {
 
     while ($self->canread()) {
         my $line = $self->readline();
-        $self->fireEvent('PrinterResponse', $line);
-        $self->parseResponse($line);
+        if ($line) {
+#             if ($self->{FlowManager}->nFeeders() == 0) {
+                printf "%s: <\t%s\n", $self->describe(), $line;
+#             }
+            $self->fireEvent('PrinterResponse', $line);
+            $self->parseResponse($line);
+        }
     }
 }
 
@@ -149,6 +157,18 @@ sub canwrite {
     my $self = shift;
     return 0 if $self->{tokens} == 0;
     return $self->SUPER::canwrite();
+}
+
+sub checkclose {
+    my $self = shift;
+
+    my $r = $self->SUPER::checkclose(@_);
+
+    if ($r == 1) {
+        delete $PrinterSockets{$self};
+    }
+
+    return $r;
 }
 
 1;
