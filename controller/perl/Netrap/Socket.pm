@@ -295,7 +295,7 @@ sub checkclose {
         $ReadSelector->remove($self->{sock});
         $WriteSelector->remove($self->{sock});
         $ErrorSelector->remove($self->{sock});
-        delete $sockets{$self};
+        delete $sockets{$self->{sock}};
         close($self->{sock});
 
         return 2 if $self->{isclosed};

@@ -139,7 +139,7 @@ sub sinkRequestData {
                 $data = $feeder->readline();
             }
             my $displaydata = $data;
-            $displaydata =~ s/([\x0-\x1A\x80-\xFF])/sprintf "\\x%02X", ord $1/ge;
+            $displaydata =~ s/([\x0-\x1A\x7E-\xFF])/sprintf "\\x%02X", ord $1/ge;
             printf "%s provides '%s'\n", $feeder->describe(), $displaydata;
             if (defined $data) {
                 $sink->write($data);

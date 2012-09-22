@@ -104,4 +104,16 @@ sub freeze {
     return $self->{frozen};
 }
 
+sub checkclose {
+    my $self = shift;
+
+    my $r = $self->SUPER::checkclose(@_);
+
+    if ($r == 1) {
+        delete $FileSockets{$self};
+    }
+
+    return $r;
+}
+
 1;

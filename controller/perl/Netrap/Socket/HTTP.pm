@@ -286,7 +286,8 @@ sub processHTTPData() {
 
 sub fileSendComplete() {
     my $self = shift;
-    printf "%s: File Send Complete\n", $self;
+    my $file = shift;
+    printf "%s: File Send Complete (%s)\n", $self, $file->describe();
     $self->raw(0);
     $self->{state} = STATE_START;
     delete $self->{FileSendFlowManager};
