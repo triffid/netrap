@@ -45,7 +45,7 @@ sub feederProvideData {
     my $feeder = shift;
     if ($self->SUPER::feederProvideData($feeder, @_)) {
         $self->{lastFeeder} = $feeder;
-        printf "feederProvideData: %s is lastFeeder\n", $feeder->describe() if $feeder;
+#         printf "feederProvideData: %s is lastFeeder\n", $feeder->describe() if $feeder;
     }
 
 #     printf "feederProvideData: lastFeeder is %s\n", $self->{lastFeeder};
@@ -65,7 +65,7 @@ sub sinkRequestData {
 
     my $feeder = $self->SUPER::sinkRequestData(@_);
     $self->{lastFeeder} = $feeder if $feeder;
-    printf "sinkRequestData: %s is lastFeeder\n", $feeder->describe() if $feeder;
+#     printf "sinkRequestData: %s is lastFeeder\n", $feeder->describe() if $feeder;
 
 #     printf "sinkRequestData: lastFeeder is %s\n", $self->{lastFeeder};
 }
@@ -75,7 +75,7 @@ sub printerResponse {
     my $printer = shift;
     my $line = shift;
     if ($self->{lastFeeder}) {
-        printf "%s receives '%s'\n", $self->{lastFeeder}->describe(), $line;
+#         printf "%s receives '%s'\n", $self->{lastFeeder}->describe(), $line;
         $self->{lastFeeder}->write($line);
     }
     else {

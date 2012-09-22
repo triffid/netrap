@@ -94,6 +94,13 @@ sub ReadSelectorCallback {
                 $self->close();
                 $parsed = 1;
             };
+            /^status$/ && do {
+                $line = $self->readline();
+                $parsed = 1;
+                if ($self->{printer}) {
+                    $self->write(sprintf "Selected Printer: %s\n", $self->{printer}->describe());
+                }
+            };
         }
         if ($parsed == 0) {
             if ($self->fireEvent('Read') == 0) {

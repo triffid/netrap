@@ -138,9 +138,9 @@ sub sinkRequestData {
             else {
                 $data = $feeder->readline();
             }
-            my $displaydata = $data;
-            $displaydata =~ s/([\x0-\x1A\x7E-\xFF])/sprintf "\\x%02X", ord $1/ge;
-            printf "%s provides '%s'\n", $feeder->describe(), $displaydata;
+#             my $displaydata = $data;
+#             $displaydata =~ s/([\x0-\x1A\x7E-\xFF])/sprintf "\\x%02X", ord $1/ge;
+#             printf "%s provides '%s'\n", $feeder->describe(), $displaydata;
             if (defined $data) {
                 $sink->write($data);
                 push @{$self->{feederOrder}}, shift @{$self->{feederOrder}};
@@ -175,9 +175,9 @@ sub feederProvideData {
                     $line = $feeder->readline();
                 }
             }
-            my $displaydata = $line;
-            $displaydata =~ s/([\x0-\x1A\x80-\xFF])/sprintf "\\x%02X", ord $1/ge;
-            printf "%s provides '%s'\n", $feeder->describe(), $displaydata;
+#             my $displaydata = $line;
+#             $displaydata =~ s/([\x0-\x1A\x80-\xFF])/sprintf "\\x%02X", ord $1/ge;
+#             printf "%s provides '%s'\n", $feeder->describe(), $displaydata;
             $sink->write($line);
 #             printf "Wrote \"%s\" to %s\n", $line, $sink->describe();
             shift @{$self->{sinkOrder}};

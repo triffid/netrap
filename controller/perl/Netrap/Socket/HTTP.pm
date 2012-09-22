@@ -164,7 +164,7 @@ sub processHTTPRequest {
 #         die Dumper \$self;
         if (defined $self->{headers}->{"content-length"}) {
             if (length($self->{content}) < $self->{headers}->{"content-length"}) {
-                print "Waiting for data\n";
+#                 print "Waiting for data\n";
                 $self->{state} = STATE_GET_DATA;
                 $self->{content} = "";
                 $self->raw(1);
@@ -179,7 +179,7 @@ sub processHTTPRequest {
             $content = encode_json {'status' => 'error', 'error' => 'unrecognised target or action'};
             if ($jsonurl =~ m#^(\w+)-(\w+)$#) {
                 my ($target, $action) = ($1, $2);
-                printf "Parsing %s:%s\n", $target, $action, $self->{content};
+#                 printf "Parsing %s:%s\n", $target, $action, $self->{content};
 #                 die Dumper Netrap::Parse::actions($target, $action);
                 if (my $callback = Netrap::Parse::actions($target, $action)) {
                     my $object = {'target' => $target, 'action' => $action, 'status' => 'OK', 'content' => $self->{content} };
@@ -187,7 +187,7 @@ sub processHTTPRequest {
                     if ($self->{content} && $self->{headers}->{'content-type'} =~ m#^application/json\b#) {
                         eval {
                             my $json = decode_json($self->{content});
-                            printf "Got %s\n", Data::Dumper->Dump([$json], [qw'json']) if $json;
+#                             printf "Got %s\n", Data::Dumper->Dump([$json], [qw'json']) if $json;
                             $object = {%{$object}, %{$json}};
                         } or $object = {%{$object}, 'status' => 'error', 'error' => $!};
                     }

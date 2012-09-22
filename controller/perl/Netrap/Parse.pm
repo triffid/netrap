@@ -414,6 +414,7 @@ my %actions = (
     },
     'printer' => {
         'add'      => \&printer_add,
+        'close'    => \&printer_close,
         'list'     => \&printer_list,
         'load'     => \&printer_load,
         'start'    => \&printer_start,
