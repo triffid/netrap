@@ -43,3 +43,41 @@ div.toolbar > div {
 	border-bottom: 1px solid white;
 }
 
+#printerbar {
+
+}
+
+#printerbar input {
+	float: right;
+}
+
+#printerbar .printer {
+    float: left;
+    border: 3px outset #DDD;
+    background-color: #DDD;
+    padding: 0.5em;
+	border-radius: 10px 10px 20px 10px;
+	width: 120px;
+	overflow: hidden;
+}
+
+#printerbar .printer:hover {
+	border-color: #FFF;
+	background-color: #FFF;
+}
+
+#printerbar .current {
+    border: inset;
+    background-color: white;
+}
+
+div.toolbar > div#printername {
+	font-weight: bold;
+	font-family: "sans serif";
+	font-size: 120%;
+	border: none;
+	margin: 0.5em;
+	height: 2em;
+	width: 100%;
+	display: block;
+}

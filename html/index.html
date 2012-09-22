@@ -11,7 +11,8 @@
 	</head>
 	<body>
 		<div class="toolbar">
-			<div><span>Printer:</span><select id="printer"><option value="0">A1001NCz</option></select><input type="button" id="refreshPrinters" value="R" /><input type="button" id="addPrinter" value="+" /></div>
+			<div class="printerbar" id="printerbar"><input type="button" id="refreshPrinters" value="R" /><input type="button" id="addPrinter" value="+" /></div><br />
+			<div style="width: 0; overflow: visible; white-space: nowrap;" id="printername"></div><br />
 			<div><input type="checkbox" id="monitor" /><span label="monitor">Monitor Printer</span></div>
 			<div><input type="button" id="getpos" value="Get Pos" /></div>
 			<div><input type="button" id="gettemp" value="Get Temp" /></div>
@@ -99,19 +100,54 @@
 				jogE.draw();
 
 				function callback_jogEvent(e) {
-// 					alert(e.gcode.join("\n"));
 					for (var i = 0; i < e.gcode.length; i++) {
 						netrap.queueCmd(e.gcode[i]);
 					}
 					netrap.queueCommit();
 				};
+
+				function refreshPrinterList() {
+					var printerdivs = $$('#printerbar > .printer');
+					for (var i = 0; i < printerdivs.length; i++) {
+						$('printerbar').removeChild(printerdivs[i]);
+					}
+					netrap.refreshPrinterList(callback_printerEvent);
+				}
+
+				function callback_printerclick() {
+					var oldcurrent = $$('#printerbar > .current')[0];
+					if (oldcurrent) {
+						var a = oldcurrent.className.split(" ");
+						var i = a.indexOf('current');
+						a.splice(i, 1);
+						oldcurrent.className = a.join(" ");
+					}
+					this.className += " current";
+					$('printername').innerHTML = this.printername;
+					netrap.selectPrinter(this.printername);
+				};
+
+				function callback_printerEvent(printer) {
+					var printerdiv = document.createElement('div');
+					printerdiv.className = 'printer';
+
+					var newimg = document.createElement('img');
+					newimg.src = 'images/prusa_icon.png';
+
+					printerdiv.appendChild(newimg);
+					printerdiv.innerHTML += '<br />' + printer;
+
+					printerdiv.printername = printer;
+					printerdiv.observe('click', callback_printerclick);
+
+					$('printerbar').appendChild(printerdiv);
+				};
+
 				jogXY.observe('click', callback_jogEvent);
 				jogZ.observe('click', callback_jogEvent);
 				jogE.observe('click', callback_jogEvent);
 
-				$('refreshPrinters').observe('click', function() {
-					netrap.refreshPrinterList();
-				});
+				$('refreshPrinters').observe('click', refreshPrinterList);
 				$('getpos').observe('click', function() {
 					$('log').value += "> M114\n";
 					netrap.refreshPosition();
@@ -156,7 +192,7 @@
 					netrap.query("M81");
 				});
 
-				window.setTimeout(netrap.refreshPrinterList, 500);
+				window.setTimeout(refreshPrinterList, 100);
 			});
 		</script>
 	</body>
