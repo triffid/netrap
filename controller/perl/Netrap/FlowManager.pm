@@ -122,7 +122,7 @@ sub sinkRequestData {
     my $self = shift;
     my $sink = shift;
 
-    printf "sinkRequestData\n";
+#     printf "sinkRequestData\n";
 
     return undef if $self->{frozen};
 
@@ -131,23 +131,25 @@ sub sinkRequestData {
         my $feeder = $self->{feeders}->{$_} or die Dumper \$self;
         if ($feeder->canread()) {
             my $data;
-            printf "%s can read; ", $feeder->describe();
+#             printf "%s can read; ", $feeder->describe();
             if ($feeder->raw()) {
                 $data = $feeder->read();
             }
             else {
                 $data = $feeder->readline();
             }
-            printf "got '%s'\n", $data;
+            my $displaydata = $data;
+            $displaydata =~ s/([\x0-\x1A\x80-\xFF])/sprintf "\\x%02X", ord $1/ge;
+            printf "%s provides '%s'\n", $feeder->describe(), $displaydata;
             if (defined $data) {
                 $sink->write($data);
                 push @{$self->{feederOrder}}, shift @{$self->{feederOrder}};
-                printf "sinkRequestData: got data from feeder %s\n", $feeder;
+#                 printf "sinkRequestData: got data from feeder %s\n", $feeder;
                 return $feeder;
             }
         }
         else {
-            printf "%s can't read\n", $feeder->describe();
+#             printf "%s can't read\n", $feeder->describe();
         }
     }
 }
@@ -173,13 +175,17 @@ sub feederProvideData {
                     $line = $feeder->readline();
                 }
             }
+            my $displaydata = $line;
+            $displaydata =~ s/([\x0-\x1A\x80-\xFF])/sprintf "\\x%02X", ord $1/ge;
+            printf "%s provides '%s'\n", $feeder->describe(), $displaydata;
             $sink->write($line);
 #             printf "Wrote \"%s\" to %s\n", $line, $sink->describe();
             shift @{$self->{sinkOrder}};
             push @{$self->{sinkOrder}}, $_;
+            return $sink;
         }
     }
-    return $sink;
+    return undef
 }
 
 sub broadcast {

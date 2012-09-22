@@ -114,7 +114,7 @@ sub fireEvent {
     $self->{Events} = {}
         unless exists $self->{Events};
 
-    printf "%s fires %s\n", $self->describe(), $eventName;
+#     printf "%s fires %s; ", $self->describe(), $eventName;
 
 #     print Dumper $self->{Events}->{$eventName};
 

@@ -79,10 +79,6 @@ sub new {
         ReadSelector => $ReadSelector,
         WriteSelector => $WriteSelector,
         ErrorSelector => $ErrorSelector,
-#         ReadNotify  => [],
-#         WriteNotify => [],
-#         ErrorNotify => [],
-#         CloseNotify => [],
     };
 
     bless $self, $class;
@@ -133,15 +129,17 @@ sub ReadSelectorCallback {
             $self->fireEvent('Read') unless $suppressEvents;
         }
         if (@{$self->{replies}} > 0) {
-            $ReadSelector->remove($self->{sock}) unless $self->{close};
+            $ReadSelector->remove($self->{sock});
         }
     }
     else {
         if (length($self->{rxbuffer})) {
-            $ReadSelector->remove($self->{sock}) unless $self->{close};
+            $ReadSelector->remove($self->{sock});
             $self->fireEvent('Read');
         }
     }
+
+    $self->checkclose();
 
     return $r;
 }
@@ -149,16 +147,21 @@ sub ReadSelectorCallback {
 sub WriteSelectorCallback {
     my $self = shift;
     my $suppressEvents = shift;
-#     printf "CanWrite: %s Close: %d canread: %d canwrite %d\n", $self, $self->{close}, $self->canread(), $self->canwrite();
 
     return if $self->checkclose();
 
     my $w = 0;
     my $written = undef;
 
+#     printf "CanWrite %s, %d lines waiting\n", $self->describe(), scalar @{$self->{txqueue}};
+
+#     print Dumper $self->{txqueue};
+
     if ((length($self->{txbuffer}) == 0) && (@{$self->{txqueue}})) {
 #         printf "Filling txbuffer from txqueue\n";
         $self->{txbuffer} .= (shift @{$self->{txqueue}})."\n";
+#         printf "TxQueue now has %d\n", scalar @{$self->{txqueue}};
+#         print Dumper $self->{txqueue};
     }
     if (length($self->{txbuffer})) {
         $w = syswrite($self->{sock}, $self->{txbuffer});
@@ -171,22 +174,11 @@ sub WriteSelectorCallback {
             $self->close();
         }
     }
-    if (
-        (
-            $self->canwrite() &&
-            ($self->{close} == 0)
-        ) ||
-        (
-            ($self->{close}) &&
-            ($self->canread())
-        )
-       ) {
+
+    if ($self->canwrite()) {
         $WriteSelector->remove($self->{sock});
-    }
-    else {
-        printf "%d / %d & %d\n", $self->{close}, $self->canwrite(), $self->canread();
-        print Dumper [$self->{txbuffer}, $self->{txqueue}];
         $self->fireEvent('CanWrite') unless $suppressEvents;
+        $self->checkclose();
     }
 
     return $written if $w;
@@ -224,8 +216,6 @@ sub canread {
 
 sub canwrite {
     my $self = shift;
-
-#     printf "CanWrite: %s", Dumper \$self;
 
     return 0 if length($self->{txbuffer});
     return 0 if @{$self->{txqueue}} > 0;
@@ -270,7 +260,7 @@ sub readline {
     else {
         if (@{$self->{replies}} <= 1) {
             $self->{ReadSelector}->add($self->{sock});
-            print "Last Line read, re-listening\n";
+#             print "Last Line read, re-listening\n";
             if ($self->{close}) {
                 $self->{WriteSelector}->add($self->{sock});
             }
@@ -299,15 +289,16 @@ sub checkclose {
 #     print "%s CheckClose: ", $self;
 
     if ($self->{close} && !$self->canread() && $self->canwrite()) {
-        return 2 if $self->{isclosed};
 #         printf "%s:fireEvent('Close')\n", $self;
-        $self->fireEvent('Close');
+        $self->fireEvent('Close') unless $self->{isclosed};
 
         $ReadSelector->remove($self->{sock});
         $WriteSelector->remove($self->{sock});
         $ErrorSelector->remove($self->{sock});
         delete $sockets{$self};
         close($self->{sock});
+
+        return 2 if $self->{isclosed};
         $self->{isclosed} = 1;
 #         printf "%s Closed\n", $self->describe();
         return 1;

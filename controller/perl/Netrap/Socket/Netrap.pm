@@ -53,7 +53,7 @@ sub ReadSelectorCallback {
         $parsed = 0;
 #         print "canread\n";
         my $line = $self->peekline();
-        printf "peek: %s\n", $line;
+#         printf "peek: %s\n", $line;
         for ($line) {
             /^([a-z]{3,})\s+([a-z]{3,}?)s?(\s+(.*?))?$/ && do {
                 $line = $self->readline();
@@ -61,7 +61,7 @@ sub ReadSelectorCallback {
                 if (my $callback = Netrap::Parse::actions($target, $action)) {
 #                     printf "callback\n";
                     if (my $result = $callback->($self, $data)) {
-                        printf "%s:%s(%s)!\n", $target, $action, $data;
+#                         printf "%s:%s(%s)!\n", $target, $action, $data;
 #                         print Dumper \$result;
                         if (ref($result)) {
                             my $data = new Data::Dumper([$result]);

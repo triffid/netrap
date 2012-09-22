@@ -56,6 +56,11 @@ sub ReadSelectorCallback {
     }
 }
 
+sub write {
+    my $self = shift;
+    return;
+}
+
 sub seek {
     my $self = shift;
     my $position = shift;

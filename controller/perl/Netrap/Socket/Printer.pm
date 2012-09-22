@@ -124,7 +124,7 @@ sub WriteSelectorCallback {
         $wrote =~ s/\(.*?\)//;
         if ($wrote =~ /[a-z]/i) {
             $self->{tokens}--;
-            printf "%s: >\t'%s'", $self->describe(), $wrote;
+#             printf "%s: >\t'%s'", $self->describe(), $wrote;
         }
         $self->fireEvent('Write', length($wrote), $wrote);
         if ($self->{tokens} > 0) {
