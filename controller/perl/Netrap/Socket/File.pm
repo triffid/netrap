@@ -16,15 +16,18 @@ sub new {
     my $class = ref($proto) || $proto;
 
     my $filename = shift;
+    my $mode = shift or 'r';
     my $sock;
 
-    $sock = new IO::File($filename) or return undef;
+    $sock = new IO::File($filename, $mode) or return undef;
 
     my $self = $class->SUPER::new($sock);
 
     $self->{filename} = $filename;
     $self->{length} = -s $filename;
     $self->{frozen} = 0;
+    $self->{read}  = ($mode =~ /[r\+\<]/ )?1:0;
+    $self->{write} = ($mode =~ /[w\+\>a]/)?1:0;
 
     bless $self, $class;
 
@@ -50,15 +53,27 @@ sub canread {
 sub ReadSelectorCallback {
     my $self = shift;
     return if $self->{frozen};
+    if (!$self->{read} && !$self->{close}) {
+        $self->{ReadSelector}->remove($self->{sock});
+        return;
+    }
     my $r = $self->SUPER::ReadSelectorCallback(@_);
     if ($r == 0) {
         $self->close();
     }
 }
 
+sub WriteSelectorCallback {
+    my $self = shift;
+    printf "%s: WriteCallback %d %d %d\n", $self->describe(), length($self->{txbuffer}), scalar(@{$self->{txqueue}}), $self->{raw};
+    return $self->SUPER::WriteSelectorCallback(@_);
+}
+
 sub write {
     my $self = shift;
-    return;
+    return unless $self->{write};
+    print "File:Write\n";
+    return $self->SUPER::write(@_);
 }
 
 sub seek {
@@ -102,6 +117,42 @@ sub freeze {
     }
 
     return $self->{frozen};
+}
+
+sub readmode {
+    my $self = shift;
+
+    my $newflag = shift;
+
+    if (defined $newflag) {
+        $self->{read} = $newflag?1:0;
+        if ($self->{read}) {
+            $self->{ReadSelector}->add($self->{sock});
+        }
+        else {
+            $self->{ReadSelector}->remove($self->{sock});
+        }
+    }
+
+    return $self->{read};
+}
+
+sub writemode {
+    my $self = shift;
+
+    my $newflag = shift;
+
+    if (defined $newflag) {
+        $self->{write} = $newflag?1:0;
+        if ($self->{write}) {
+            $self->{WriteSelector}->add($self->{sock});
+        }
+        else {
+            $self->{WriteSelector}->remove($self->{sock});
+        }
+    }
+
+    return $self->{write};
 }
 
 sub checkclose {

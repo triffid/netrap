@@ -20,6 +20,10 @@ sub new {
 
     my $self = $class->SUPER::new($sock);
 
+    bless $self, $class;
+
+    return undef if $PrinterSockets{$self->{sock}};
+
     $self->{tokens} = 1;
     $self->{maxtoken} = 1;
     $self->{pos} = {};
@@ -32,8 +36,6 @@ sub new {
 
     $self->{FlowManager} = new Netrap::PrinterManager();
     $self->{FlowManager}->addSink($self);
-
-    bless $self, $class;
 
     $PrinterSockets{$self->{sock}} = $self;
 
@@ -89,15 +91,6 @@ sub parseResponse {
     my $self = shift;
     my $line = shift;
     for ($line) {
-#         printf "Got %s in response to %s\n", $line, $self->{request};
-        if (m#\bok\b#i) {
-            $self->{tokens}++ if $self->{tokens} < $self->{maxtoken};
-            $self->fireEvent('Token');
-            $self->fireEvent('CanWrite');
-            if ($self->canwrite() == 0) {
-                $self->{WriteSelector}->add($self->{sock});
-            }
-        }
         if (m#T\s*:\s*(\d+(\.\d+))(\s*/(\d+(\.\d+)?))#) {
             $self->{temps}->{current}->{nozzle} = $1;
             $self->{temps}->{target}->{nozzle} = $4 if $4;
@@ -109,6 +102,17 @@ sub parseResponse {
         if ($self->{request} =~ /\bM114\b/) {
             if (m#([XYZE]):(\d(\.\d+))#) {
                 $self->{pos}->{$1} = $2;
+            }
+        }
+    }
+    $self->fireEvent('PrinterResponse', $line);
+    for ($line) {
+        if (m#\bok\b#i) {
+            $self->{tokens}++ if $self->{tokens} < $self->{maxtoken};
+            $self->fireEvent('Token');
+            $self->fireEvent('CanWrite');
+            if ($self->canwrite() == 0) {
+                $self->{WriteSelector}->add($self->{sock});
             }
         }
     }
@@ -147,7 +151,6 @@ sub ReadSelectorCallback {
 #             if ($self->{FlowManager}->nFeeders() == 0) {
                 printf "%s: <\t%s\n", $self->describe(), $line;
 #             }
-            $self->fireEvent('PrinterResponse', $line);
             $self->parseResponse($line);
         }
     }

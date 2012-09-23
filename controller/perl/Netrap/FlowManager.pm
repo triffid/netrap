@@ -1,11 +1,14 @@
 package Netrap::FlowManager;
 
 use strict;
+use vars qw(@ISA);
 
 use Data::Dumper;
 use IO::Select;
 use Netrap::Socket;
 use List::Util qw(first);
+
+@ISA = qw(EventDispatch);
 
 sub _addFeeder {
     my $self = shift;
@@ -31,9 +34,13 @@ sub new {
 
     my $self = {};
 
+    bless $self, $class;
+
     $self->{ReadSelector} = $Netrap::Socket::ReadSelector;
     $self->{WriteSelector} = $Netrap::Socket::WriteSelector;
     $self->{ErrorSelector} = $Netrap::Socket::ErrorSelector;
+
+    $self->addEvent('Complete');
 
     $self->{broadcast} = 0;
 
@@ -60,7 +67,6 @@ sub new {
         }
     }
 
-    bless $self, $class;
     return $self;
 }
 
@@ -109,11 +115,13 @@ sub removeSink {
     my $self = shift;
     while (@_) {
         my $sink = shift;
-        $sink->removeReceiver('CanWrite', $self, $self->can('sinkRequestData')) unless $self->{frozen};
-        $sink->removeReceiver('Close', $self, $self->can('removeSink'));
-        my $index = first { $self->{sinkOrder}->[$_] eq "$sink" } 0..$#{$self->{sinkOrder}};
-        splice @{$self->{sinkOrder}}, $index, 1
-            if defined $index;
+        if ($sink) {
+            $sink->removeReceiver('CanWrite', $self, $self->can('sinkRequestData')) unless $self->{frozen};
+            $sink->removeReceiver('Close', $self, $self->can('removeSink'));
+            my $index = first { $self->{sinkOrder}->[$_] eq "$sink" } 0..$#{$self->{sinkOrder}};
+            splice @{$self->{sinkOrder}}, $index, 1
+                if defined $index;
+        }
         delete $self->{sinks}->{$sink};
     }
 }
@@ -122,34 +130,46 @@ sub sinkRequestData {
     my $self = shift;
     my $sink = shift;
 
-#     printf "sinkRequestData\n";
+    printf "sinkRequestData\n";
 
     return undef if $self->{frozen};
+
+#     printf "sinkRequestData\n";
 
     my @l = @{$self->{feederOrder}};
     for (@l) {
         my $feeder = $self->{feeders}->{$_} or die Dumper \$self;
         if ($feeder->canread()) {
             my $data;
-#             printf "%s can read; ", $feeder->describe();
+            my $length;
+            printf "%s can read; ", $feeder->describe();
             if ($feeder->raw()) {
                 $data = $feeder->read();
+                $length = length($data);
             }
             else {
-                $data = $feeder->readline();
+                $data = $feeder->readline(\$length);
             }
 #             my $displaydata = $data;
 #             $displaydata =~ s/([\x0-\x1A\x7E-\xFF])/sprintf "\\x%02X", ord $1/ge;
 #             printf "%s provides '%s'\n", $feeder->describe(), $displaydata;
-            if (defined $data) {
+            if (defined $data && $length > 0) {
                 $sink->write($data);
+                $self->{datacount} += $length;
+                if ($self->{maxdata}) {
+                    if ($self->{datacount} >= $self->{maxdata}) {
+                        $self->fireEvent('Complete');
+                    }
+                    print "Transferred %d of %d bytes\n", $self->{datacount}, $self->{maxdata};
+                }
                 push @{$self->{feederOrder}}, shift @{$self->{feederOrder}};
-#                 printf "sinkRequestData: got data from feeder %s\n", $feeder;
+                printf "sinkRequestData: got data from feeder %s\n", $feeder;
                 return $feeder;
             }
         }
         else {
 #             printf "%s can't read\n", $feeder->describe();
+#             print Dumper $feeder;
         }
     }
 }
@@ -157,6 +177,8 @@ sub sinkRequestData {
 sub feederProvideData {
     my $self = shift;
     my $feeder = shift;
+
+    printf "feederProvideData\n";
 
     return undef if $self->{frozen};
 
@@ -168,23 +190,35 @@ sub feederProvideData {
         $sink = $self->{sinks}->{$_};
         if ($sink->canwrite()) {
             if (!defined $line) {
+                my $length;
                 if ($feeder->raw()) {
                     $line = $feeder->read();
+                    $length = length($line);
                 }
                 else {
-                    $line = $feeder->readline();
+                    $line = $feeder->readline(\$length);
+                }
+                if ($length) {
+                    $self->{datacount} += $length;
                 }
             }
 #             my $displaydata = $line;
 #             $displaydata =~ s/([\x0-\x1A\x80-\xFF])/sprintf "\\x%02X", ord $1/ge;
 #             printf "%s provides '%s'\n", $feeder->describe(), $displaydata;
+#             print Dumper $feeder;
             $sink->write($line);
 #             printf "Wrote \"%s\" to %s\n", $line, $sink->describe();
+            if ($self->{maxdata}) {
+                if ($self->{datacount} >= $self->{maxdata}) {
+                    $self->fireEvent('Complete');
+                }
+            }
             shift @{$self->{sinkOrder}};
             push @{$self->{sinkOrder}}, $_;
             return $sink;
         }
     }
+    printf "feederProvideData return\n";
     return undef
 }
 
@@ -200,6 +234,27 @@ sub nSinks {
 sub nFeeders {
     my $self = shift;
     return scalar @{$self->{feederOrder}};
+}
+
+sub dataCount {
+    my $self = shift;
+    return $self->{datacount} or 0;
+}
+
+sub resetData {
+    my $self = shift;
+    $self->{datacount} = 0;
+}
+
+sub maxData {
+    my $self = shift;
+    my $newmax = shift;
+
+    if (defined $newmax) {
+        $self->{maxdata} = $newmax;
+    }
+
+    return $self->{maxdata};
 }
 
 sub freeze {

@@ -3,6 +3,8 @@ package EventDispatch;
 use strict;
 
 use Data::Dumper;
+use Carp;
+use Scalar::Util qw(blessed);
 
 our @events;
 
@@ -10,8 +12,11 @@ sub runEvents {
     while (@events) {
         my ($function, $instance, $self, $args) = @{shift @events};
         my @args = @{$args};
+        printf "%s->%s(%s)\n", $instance, $function, $self;
         $function->($instance, $self, @args);
+        print "ok\n";
     }
+#     print "end events\n";
 }
 
 sub new {
@@ -65,6 +70,8 @@ sub addReceiver {
     my $eventName = shift;
     my ($instance, $function) = @_;
 
+    croak sprintf('addReceiver expects $blessed, $CODE. Got %s, %s', $instance, $function) if !blessed($instance) || ref($function) ne 'CODE';
+
     $self->{Events} = {}
         unless exists $self->{Events};
 
@@ -107,6 +114,28 @@ sub removeReceiver {
     return scalar @indices;
 }
 
+sub cullReceivers {
+    my $self = shift;
+    my $eventName = shift;
+
+    $self->{Events} = {}
+        unless exists $self->{Events};
+
+    my $r = 0;
+    $r = @{$self->{Events}->{$eventName}} if ref($self->{Events}->{$eventName}) eq 'ARRAY';
+
+    $self->{Events}->{$eventName} = [];
+
+    return $r;
+}
+
+sub hasEvent {
+    my $self = shift;
+    my $eventName = shift;
+
+    return defined $self->{Events}->{$eventName};
+}
+
 sub fireEvent {
     my $self = shift;
     my $eventName = shift;
@@ -114,7 +143,9 @@ sub fireEvent {
     $self->{Events} = {}
         unless exists $self->{Events};
 
-#     printf "%s fires %s; ", $self->describe(), $eventName;
+    return unless $self->{Events}->{$eventName} && ref($self->{Events}->{$eventName}) eq 'ARRAY';
+
+    printf "%s fires %s\n", $self->describe(), $eventName;
 
 #     print Dumper $self->{Events}->{$eventName};
 

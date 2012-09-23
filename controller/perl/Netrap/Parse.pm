@@ -8,6 +8,8 @@ use Data::Dumper;
 use Netrap::Socket;
 use Netrap::Socket::Printer;
 
+use Netrap::FlowManager;
+
 use IO::Termios;
 
 my $upload_dir = 'upload/';
@@ -90,6 +92,8 @@ sub printer_add {
     my $port;
     my $baud;
 
+    return {'status' => 'ok'} if defined $requestor->{remaining} && $requestor->{remaining} > 0;
+
     if (ref($object)) {
         $device = $object->{device};
         $port = $object->{port};
@@ -139,6 +143,8 @@ sub printer_list {
     my $requestor = shift;
     my $object = shift;
 
+    $object = {} unless ref($object) eq 'HASH';
+
     $object->{printers} = [];
 
     for (keys %Netrap::Socket::Printer::PrinterSockets) {
@@ -152,6 +158,10 @@ sub printer_list {
 sub printer_load {
     my $requestor = shift;
     my $object = shift;
+
+#     print Dumper \$requestor;
+
+    return {'status' => 'ok'} if defined $requestor->{remaining} && $requestor->{remaining} > 0;
 
     my @printers = search_printer($requestor, $object);
     if (@printers > 1) {
@@ -382,6 +392,65 @@ sub file_list {
 sub file_upload {
     my $requestor = shift;
     my $object = shift;
+
+    my $remaining;
+    my $filename;
+
+    if (!ref($object)) {
+        if ($object =~ /^(.*?)\s+(\d+)$/) {
+            $filename = $1;
+            $remaining = $2;
+        }
+        else {
+            $filename = $object;
+        }
+        $object = {'filename' => $filename};
+    }
+    else {
+        $filename = $object->{filename} if $object->{filename};
+        $remaining = $object->{remaining} if $object->{remaining};
+    }
+
+    if (!defined $remaining && defined $requestor->{remaining}) {
+        $remaining = $requestor->{remaining};
+    }
+
+    if (defined $remaining && $remaining =~ /^\d+$/ && $remaining > 0 && $filename =~ m#^[a-z][^/:]+\.[^/:]+$#) {
+        $requestor->{uploading} = $remaining;
+        my $file = new Netrap::Socket::File($upload_dir . $filename, 'w');
+        if ($file) {
+            $requestor->raw(1);
+            $file->raw(1);
+            $file->readmode(0);
+            $file->writemode(1);
+            my $fm = new Netrap::FlowManager();
+            $fm->maxData($remaining);
+            $fm->addFeeder($requestor);
+            $fm->addSink($file);
+#             $fm->addReceiver('Complete', $fm, \&file_upload_complete, $requestor, $file);
+            $fm->addReceiver('Complete', $fm, sub { file_upload_complete($fm, $requestor, $file); });
+            return {%{$object}, 'status' => 'ok', 'UploadFile' => $file, 'UploadManager' => $fm};
+        }
+    }
+    else {
+        return {%{$object}, 'status' => 'error', 'error' => "Can't determine length of upload"};
+    }
+}
+
+sub file_upload_complete {
+    my $fm = shift;
+    my $requestor = shift;
+    my $file = shift;
+
+    delete $requestor->{uploading};
+
+    printf "file_upload_complete '%s' '%s' '%s'\n", $fm, $requestor, $file;
+
+    $fm->removeFeeder($requestor);
+
+    $fm->removeSink($file);
+
+    $file->close();
 }
 
 sub file_describe {

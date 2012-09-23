@@ -115,11 +115,11 @@ sub ReadSelectorCallback {
     if ($r == 0) {
         $self->close();
     }
-#     printf "Read %d bytes from %s\n", $r, $self->{sock}; #, $buf;
+    printf "Read %d bytes from %s: '%s'\n", $r, $self->{sock}, $buf;
     $self->{rxbuffer} .= $buf;
 
     if (!$self->{raw}) {
-        while ($self->{rxbuffer} =~ s/^(.*?)\r?\n//e) {
+        while ($self->{rxbuffer} =~ s/^(.*?\r?\n)//e) {
             push @{$self->{replies}}, $1;
         }
         my $nreplies = scalar(@{$self->{replies}}) + 1;
@@ -165,7 +165,7 @@ sub WriteSelectorCallback {
     }
     if (length($self->{txbuffer})) {
         $w = syswrite($self->{sock}, $self->{txbuffer});
-#         printf "Wrote %d of %d bytes: %s\n", $w, length($self->{txbuffer}),
+        printf "Wrote %d of %d bytes: %s\n", $w, length($self->{txbuffer}),
         $written = substr($self->{txbuffer}, 0, $w, "");
         if ($w > 0) {
             $self->fireEvent('Write', $w, $written) unless $suppressEvents;
@@ -209,6 +209,7 @@ sub write {
 
 sub canread {
     my $self = shift;
+    printf "[%s CanRead? %d %d %d]\n", $self->describe(), scalar(@{$self->{replies}}), length($self->{rxbuffer}), $self->{raw};
     return 1 if @{$self->{replies}};
     return 1 if length($self->{rxbuffer}) && $self->{raw};
     return 0;
@@ -228,11 +229,12 @@ sub read {
         my $max = shift;
         $max = 4096 unless looks_like_number($max);
         $max = length($self->{rxbuffer}) if $max > length($self->{rxbuffer});
-        $max = 1 if $max == 0;
+        $max = 0 if $max < 0;
         my $r = substr($self->{rxbuffer}, 0, $max, "");
         if (length($self->{rxbuffer}) == 0) {
             $ReadSelector->add($self->{sock});
         }
+#         printf "Read '%s'\n", $r;
         return $r;
     }
     return $self->readline();
@@ -265,7 +267,15 @@ sub readline {
                 $self->{WriteSelector}->add($self->{sock});
             }
         }
-        return shift @{$self->{replies}} or undef;
+        if (my $line = shift @{$self->{replies}}) {
+            if (@_ && ref($_[0]) eq 'SCALAR') {
+                ${$_[0]} = length($line);
+            }
+            $line =~ s/\r?\n$//;
+            printf "ReadLine '%s'\n", $line;
+            return $line;
+        }
+        return undef;
     }
 }
 

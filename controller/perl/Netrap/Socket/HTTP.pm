@@ -37,9 +37,15 @@ sub new {
     $self->{name}       = sprintf "%s:%d", $self->{remoteaddr}, $self->{remoteport};
 
     $self->{headers}    = {};
-    $self->{state}      = 0;
+    $self->{state}      = STATE_START;
 
     bless $self, $class;
+
+    $self->addEvent('GotHeader');
+    $self->addEvent('GotSomeData');
+    $self->addEvent('GotAllData');
+#     $self->addEvent('WroteSomeData');
+    $self->addEvent('RequestComplete');
 
     if (keys(%mime_types) == 0) {
         if (open M, "< /etc/mime.types") {
@@ -75,14 +81,15 @@ sub ReadSelectorCallback {
         if ($self->{state} == STATE_START) {
             my $line = $self->readline();
 #             printf "\tRead: \t%s\n", $line;
-            if ($line =~ m#^(GET|POST|HEAD|OPTION)\s+(/\S*)\s+HTTP/(\d+(\.\d+)?)$#) {
+            if ($line =~ m#^(GET|POST|HEAD)\s+(/\S*)\s+HTTP/(\d+(\.\d+)?)$#) {
                 $self->{headers}->{method} = $1;
                 $self->{headers}->{url} = $2;
                 $self->{headers}->{httpversion} = $3;
                 $self->{state} = STATE_GET_HEADERS;
             }
             else {
-                printf "Bad request from %s, closing\n", $self->describe();
+#                 die Dumper \$line;
+                printf "Bad request from %s '%s', closing\n", $self->describe(), $line;
                 $self->close();
                 $self->flushrx();
                 return;
@@ -96,6 +103,7 @@ sub ReadSelectorCallback {
                 $self->{headers}->{lc $1} = $2;
             }
             elsif ($line =~ /^$/) {
+                $self->fireEvent('GotHeader');
                 return if $self->processHTTPRequest();
             }
             else {
@@ -104,11 +112,19 @@ sub ReadSelectorCallback {
         }
         # state 2 - receive data
         elsif ($self->{state} == STATE_GET_DATA) {
-            $self->{content} .= $self->read(4096);
+            return if $self->{uploading};
+
+            my $read = $self->read(4096);
+            $self->{content} .= $read;
 #             printf "Received %d bytes\n", length($self->{content});
 #             die Dumper \$self;
-            if (length($self->{content}) >= $self->{headers}->{"content-length"}) {
+            $self->{remaining} -= length($read);
+            if ($self->{remaining} <= 0) {
+                $self->fireEvent('GotAllData');
                 return if $self->processHTTPRequest();
+            }
+            else {
+                $self->fireEvent('GotSomeData');
             }
         }
         else {
@@ -122,9 +138,7 @@ sub WriteSelectorCallback {
 
     my $written = $self->SUPER::WriteSelectorCallback();
 
-#     printf "\tWrite:\t%s", $written;
-
-    if ($self->{FileSendFlowManager}) {
+    if ($self->canwrite() && $self->{FileSendFlowManager}) {
         $self->{FileSendFlowManager}->sinkRequestData($self);
     }
 }
@@ -134,6 +148,8 @@ sub sendHeader {
 
     $self->raw(0);
     $self->write(sprintf "HTTP/1.1 %s %s", $self->{headers}->{responsecode}, $self->{headers}->{responsedesc});
+    $self->{responseheaders}->{"Connection"} = $self->{headers}->{"connection"} unless $self->{responseheaders}->{"Connection"};
+    $self->{responseheaders}->{"Connection"} = 'close' unless defined $self->{responseheaders}->{'Content-Length'} && $self->{headers}->{"connection"} =~ /keep-alive/i;
     for (keys %{$self->{responseheaders}}) {
         $self->write(sprintf "%s: %s", $_, $self->{responseheaders}->{$_});
     }
@@ -172,29 +188,74 @@ sub processHTTPRequest {
             }
         }
 
+        my %object;
+        if ($url =~ s/\?(.*)//) {
+            my $args = $1;
+            my @pairs = split /\&/, $args;
+            for (@pairs) {
+                my $key = $_;
+                my $value;
+                $value = $1 if $key =~ s/=(.*)//;
+                if ($object{$key}) {
+                    if (ref($object{$key}) eq 'ARRAY') {
+                        push @{$object{$key}}, $value;
+                    }
+                    else {
+                        $object{$key} = [$object{$key}, $value];
+                    }
+                }
+                else {
+                    $object{$key} = $value;
+                }
+            }
+        }
+
         if ($url =~ m#^/json/(.*)#) {
             my $jsonurl = $1;
-            return 0 if (length($self->{content}) < $self->{headers}->{"content-length"});
+#             return 0 if (length($self->{content}) < $self->{headers}->{"content-length"});
             $self->{responseheaders}->{'Content-Type'} = 'application/json';
+            if ($self->{headers}->{"content-length"} && !defined $self->{remaining}) {
+                $self->{"remaining"} = $self->{headers}->{"content-length"} - length($self->{content});
+            }
             $content = encode_json {'status' => 'error', 'error' => 'unrecognised target or action'};
             if ($jsonurl =~ m#^(\w+)-(\w+)$#) {
                 my ($target, $action) = ($1, $2);
 #                 printf "Parsing %s:%s\n", $target, $action, $self->{content};
 #                 die Dumper Netrap::Parse::actions($target, $action);
                 if (my $callback = Netrap::Parse::actions($target, $action)) {
-                    my $object = {'target' => $target, 'action' => $action, 'status' => 'OK', 'content' => $self->{content} };
+                    %object = (%object, 'target' => $target, 'action' => $action, 'status' => 'OK', 'content' => $self->{content} );
 #                     die Dumper \$self;
                     if ($self->{content} && $self->{headers}->{'content-type'} =~ m#^application/json\b#) {
                         eval {
                             my $json = decode_json($self->{content});
 #                             printf "Got %s\n", Data::Dumper->Dump([$json], [qw'json']) if $json;
-                            $object = {%{$object}, %{$json}};
-                        } or $object = {%{$object}, 'status' => 'error', 'error' => $!};
+                            %object = {%object, %{$json}};
+                        } or %object = {%object, 'status' => 'error', 'error' => $!};
                     }
-                    my $response = $callback->($self, $object);
-                    $response = {%{$object}, 'status' => 'error', 'error' => 'no handler'} unless ref($response) eq 'HASH';
-                    delete $response->{content};
-                    $content = encode_json $response;
+
+                    print Dumper \%object;
+                    my $response = $callback->($self, \%object);
+
+                    if (length($self->{content}) >= $self->{headers}->{"content-length"}) {
+                        $response = {%object, 'status' => 'error', 'error' => scalar($response)} unless ref($response) eq 'HASH';
+                        delete $response->{content};
+                        $content = encode_json $response;
+                    }
+                    elsif (ref($response) eq 'HASH' && $response->{status} =~ /ok/i) {
+                        printf "Waiting for data\n";
+                        $self->{state} = STATE_GET_DATA;
+                        if ($response->{UploadManager}) {
+                            $response->{UploadManager}->addReceiver('Complete', $self, sub { $self->uploadComplete(\%object); });
+                            $self->{UploadManager} = $response->{UploadManager};
+                        }
+                        if ($response->{UploadFile}) {
+#                             $response->{UploadFile}->addReceiver('Write', $self, sub { $self->fireEvent('WroteSomeData') });
+                            $self->{UploadFile} = $response->{UploadFile};
+#                             $self->addReceiver('Read', $self, sub { print Dumper $self->{UploadManager}; });
+#                             $self->sendHeader();
+                        }
+                        return 0;
+                    }
                 }
             }
         }
@@ -237,11 +298,6 @@ sub processHTTPRequest {
                     $self->{headers}->{responsedesc} = 'OK';
                     $filesocket->addReceiver('Close', $self, $self->can('fileSendComplete'));
 
-#                     $self->write(sprintf "HTTP/1.1 %s %s", $self->{headers}->{responsecode}, $self->{headers}->{responsedesc});
-#                     for (keys %{$self->{responseheaders}}) {
-#                         $self->write(sprintf "%s: %s", $_, $self->{responseheaders}->{$_});
-#                     }
-#                     $self->write("");
                     $self->sendHeader();
                     $self->{state} = STATE_SEND_DATA;
                     $self->raw(1);
@@ -249,7 +305,7 @@ sub processHTTPRequest {
                     my $log = "^remoteaddr;:^remoteport;\t^method; ^url; ^responsecode; ^size;\n";
                     $log =~ s/\^(\w+)\;/$self->{headers}->{$1} || $self->{$1}/eg;
                     print $log;
-                    return;
+                    return 1;
                 }
             }
         }
@@ -268,36 +324,86 @@ sub processHTTPRequest {
         $self->readline() while $self->canread();
     }
 
-#     print Dumper \$self;
-
-    $self->{state} = STATE_START;
-
     my $log = "^remoteaddr;:^remoteport;\t^method; ^url; ^responsecode; ^size;\n";
     $log =~ s/\^(\w+)\;/$self->{headers}->{$1} || $self->{$1}/eg;
     print $log;
+
+    $self->requestComplete();
 
     return 1;
 }
 
 sub processHTTPData() {
     my $self = shift;
-
+    $self->fireEvent('GotSomeData');
 }
 
-sub fileSendComplete() {
+sub uploadComplete() {
+    my $self = shift;
+
+    my %object = %{(shift)};
+
+    delete $object{content};
+
+    my $content = encode_json(\%object);
+
+    $self->{responseheaders}->{"Content-Length"} = length($content);
+
+    $self->sendHeader();
+
+    $self->write($content);
+
+    $self->requestComplete();
+}
+
+sub requestComplete() {
     my $self = shift;
     my $file = shift;
-    printf "%s: File Send Complete (%s)\n", $self, $file->describe();
+#     printf "%s: File Send Complete (%s)\n", $self, $file->describe();
+
     $self->raw(0);
     $self->{state} = STATE_START;
+    $self->fireEvent('RequestComplete');
+
+    $self->cullReceivers('GotHeader');
+    $self->cullReceivers('GotSomeData');
+    $self->cullReceivers('GotAllData');
+#     $self->cullReceivers('WroteSomeData');
+    $self->cullReceivers('RequestComplete');
+
     delete $self->{FileSendFlowManager};
+    delete $self->{remaining};
+
 #     printf "Connection: %s\n", $self->{headers}->{'connection'};
     if ($self->{headers}->{'connection'} !~ /keep-alive/i) {
 #         printf "Closing\n";
         $self->close();
         $self->flushrx();
     }
+
     $self->{headers} = {};
+}
+
+sub readline() {
+    my $self = shift;
+    my $length;
+
+    my $line = $self->SUPER::readline(\$length);
+
+    if ($self->{remaining}) {
+        $self->{remaining} -= $length;
+    }
+
+    return $line;
+}
+
+sub fileSendComplete() {
+    my $self = shift;
+
+    my $file = shift;
+#     printf "%s: File Send Complete (%s)\n", $self, $file->describe();
+
+    $self->requestComplete();
 }
 
 sub checkclose {
