@@ -12,7 +12,7 @@
 	<body>
 		<div class="toolbar">
 			<div class="printerbar" id="printerbar"><input type="button" id="refreshPrinters" value="R" /><input type="button" id="addPrinter" value="+" /></div><br />
-			<div style="width: 0; overflow: visible; white-space: nowrap;" id="printername"></div><br />
+			<div style="overflow: visible; white-space: nowrap;" id="printername"></div><br style="clear: right;" />
 			<div><input type="checkbox" id="monitor" /><span label="monitor">Monitor Printer</span></div>
 			<div><input type="button" id="getpos" value="Get Pos" /></div>
 			<div><input type="button" id="gettemp" value="Get Temp" /></div>
@@ -46,6 +46,7 @@
 			</table>
 		</div>
 		<div class="tabcontent" id="FilesTab" name="Files">
+			<div id="FileUploads"></div>
 			<input type="file" id="fileupload" multiple="multiple" />
 			<ul class="FileList" id="FileList"></ul>
 		</div>
@@ -57,6 +58,42 @@
 			document.observe('dom:loaded', function() {
 				var netrap = new netrapUplink('netrap-json');
 
+				function nicesize(size) {
+					if (size > Math.pow(2,30))
+						return Math.round(size / 10000000) / 100 + 'Gb';
+					if (size > Math.pow(2,20))
+						return Math.round(size / 10000) / 100 + 'Mb';
+					if (size > Math.pow(2,10))
+						return Math.round(size / 10) / 100 + 'Kb';
+					return size + 'b';
+				}
+
+				function callback_FileList(files) {
+					while ($("FileList").childNodes.length) {
+						$("FileList").removeChild($("FileList").childNodes[0]);
+					}
+					for (var i = 0; i < files.length; i++) {
+						var li = document.createElement('li');
+						var a = document.createElement('a');
+						var sz = document.createElement('div');
+
+						a.innerHTML = files[i]['name'];
+						a.href = '#file=' + files[i]['name'];
+						a.file = files[i];
+						a.filename = files[i]['name'];
+						a.observe('click', function() {
+							alert(this.filename);
+						});
+						li.appendChild(a);
+
+						sz.className = 'filesize';
+						sz.innerHTML = nicesize(files[i]['size']);
+						li.appendChild(sz);
+
+						$("FileList").appendChild(li);
+					}
+				}
+
 				function tabActivate(n) {
 	// 				alert(n);
 					var tabbar = $("tabbar");
@@ -67,7 +104,7 @@
 								$(regex[1]).className = "tabcontent current";
 								tabbar.children[i].className = "tabbutton current";
 								if (/FilesTabButton/.test(tabbar.children[i].id)) {
-									netrap.refreshFileList();
+									netrap.refreshFileList(callback_FileList);
 								}
 							}
 							else {
@@ -107,11 +144,11 @@
 				};
 
 				function refreshPrinterList() {
-					var printerdivs = $$('#printerbar > .printer');
-					for (var i = 0; i < printerdivs.length; i++) {
-						$('printerbar').removeChild(printerdivs[i]);
-					}
-					netrap.refreshPrinterList(callback_printerEvent);
+// 					var printerdivs = $$('#printerbar > .printer');
+// 					for (var i = 0; i < printerdivs.length; i++) {
+// 						$('printerbar').removeChild(printerdivs[i]);
+// 					}
+					netrap.refreshPrinterList(callback_printersList);
 				}
 
 				function callback_printerclick() {
@@ -127,20 +164,98 @@
 					netrap.selectPrinter(this.printername);
 				};
 
-				function callback_printerEvent(printer) {
-					var printerdiv = document.createElement('div');
-					printerdiv.className = 'printer';
+				function callback_printersList(printers) {
+					var printerdivs = $$('#printerbar > .printer');
+					var existingprinters = [];
+					for (var i = 0; i < printerdivs.length; i++) {
+						if (printers.indexOf(printerdivs[i].printername) < 0)
+							$('printerbar').removeChild(printerdivs[i]);
+						else
+							existingprinters.push(printerdivs[i].printername);
+					}
+					for (var i = 0; i < printers.length; i++) {
+						var printer = printers[i];
 
-					var newimg = document.createElement('img');
-					newimg.src = 'images/prusa_icon.png';
+						if (existingprinters.indexOf(printer) < 0) {
+							var printerdiv = document.createElement('div');
+							printerdiv.className = 'printer';
 
-					printerdiv.appendChild(newimg);
-					printerdiv.innerHTML += '<br />' + printer;
+							var newimg = document.createElement('img');
+							newimg.src = 'images/prusa_icon.png';
 
-					printerdiv.printername = printer;
-					printerdiv.observe('click', callback_printerclick);
+							printerdiv.appendChild(newimg);
+							printerdiv.innerHTML += '<br />' + printer;
 
-					$('printerbar').appendChild(printerdiv);
+							printerdiv.printername = printer;
+							printerdiv.observe('click', callback_printerclick);
+
+							$('printerbar').appendChild(printerdiv);
+						}
+					}
+				};
+
+				function callback_FileUpload_NextFile() {
+					var uploads = $$('.uploading');
+					if (uploads.length) {
+						var uf = uploads[0];
+						uf.className = 'uploadingfile uploadingfile_current';
+						var file = uf.file;
+						netrap.uploadFile(file, function(response) {
+							$$('.uploadingfile_current > .text')[0].innerHTML = 'Uploading: ' + file.name + ' [' + nicesize(file.size) + ' Complete]';
+							uf.className = 'uploadingfile uploaded';
+							window.setTimeout(function() {
+								$('FileUploads').removeChild(uf);
+							}, 1000);
+							window.setTimeout(function() {
+								callback_FileUpload_NextFile();
+							}, 100);
+							for (var i = 0, lia; lia = $('FileList').childNodes[i][0]; i++) {
+								if (lia.innerHTML == file.name) {
+									$('FileList').removeChild($('FileList').childNodes[i]);
+									i--;
+								}
+							}
+							netrap.files.push({'name': file.name, 'size':file.size});
+							callback_FileList(netrap.files);
+						},
+						function(response) {
+							var percent = Math.round(response.loaded * 1000 / response.total) / 10;
+							uf.childNodes[0].style.left = (percent - 100) + '%';
+							$$('.uploadingfile_current > .text')[0].innerHTML = 'Uploading: ' + file.name + ' [' + nicesize(response.loaded) + ' of ' + nicesize(response.total) + ': ' + percent + '%]';
+						});
+					}
+				};
+
+				function callback_FileUpload(event) {
+					var files = event.target.files;
+// 					var lastfilediv;
+					for (var i = 0, f; f = files[i]; i++) {
+						var uf = document.createElement('div');
+						uf.className = 'uploadingfile uploading';
+
+						var tx = document.createElement('div');
+						tx.innerHTML = "Uploading: " + f.name + ' [' + nicesize(f.size) + ']';
+						tx.className = 'text';
+
+						var sl = document.createElement('div');
+						sl.className = 'background';
+						sl.style.left = '-100%';
+
+						var sl2 = document.createElement('div');
+						sl2.className = 'slider';
+
+						var sl3 = document.createElement('div');
+						sl3.className = 'backgroundHolder';
+
+						sl.appendChild(sl2);
+						uf.appendChild(sl);
+						uf.appendChild(tx);
+						uf.file = f;
+						$('FileUploads').appendChild(uf);
+// 						lastfilediv = uf;
+					}
+					callback_FileUpload_NextFile();
+					return false;
 				};
 
 				jogXY.observe('click', callback_jogEvent);
@@ -168,6 +283,7 @@
 						}
 					}
 				});
+				$('fileupload').observe('change', callback_FileUpload);
 				$('manual_entry').onsubmit = function() {
 					var send = $('send');
 					if (send.value) {
@@ -189,7 +305,9 @@
 				});
 				$('turnoff').observe('click', function() {
 					$('log').value += "> M81\n";
-					netrap.query("M81");
+					netrap.queueCmd("M81");
+					netrap.queueCmd("M84");
+					netrap.queueCommit();
 				});
 
 				window.setTimeout(refreshPrinterList, 100);

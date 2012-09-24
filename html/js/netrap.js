@@ -110,14 +110,14 @@ netrapUplink.prototype = {
 				if (json) {
 					if (json.printers && json.printers.length >= 0) {
 						self.printers = json.printers;
-						for (var i = 0; i < json.printers.length; i++) {
-							var printer = json.printers[i];
-							if (printer) {
+// 						for (var i = 0; i < json.printers.length; i++) {
+// 							var printer = json.printers[i];
+// 							if (printer) {
 								if (callback) {
-									callback(printer);
+									callback(self.printers);
 								}
-							}
-						}
+// 							}
+// 						}
 					}
 				}
 			},
@@ -126,7 +126,7 @@ netrapUplink.prototype = {
 			},
 		});
 	},
-	refreshFileList: function() {
+	refreshFileList: function(callback_FileList) {
 		var self = this;
 		var r = new Ajax.Request("json/file-list", {
 			onSuccess: function (response) {
@@ -138,25 +138,13 @@ netrapUplink.prototype = {
 				if (json) {
 					if (json.files.length) {
 						self.files = [];
-						while ($("FileList").childNodes.length) {
-							$("FileList").removeChild($("FileList").childNodes[0]);
-						}
+// 						while ($("FileList").childNodes.length) {
+// 							$("FileList").removeChild($("FileList").childNodes[0]);
+// 						}
 						for (var i = 0; i < json.files.length; i++) {
 							self.files.push(json.files[i]);
-							var li = document.createElement('li');
-							var a = document.createElement('a');
-							a.innerHTML = json.files[i]['name'];
-							a.href = '#file=' + json.files[i]['name'];
-							a.observe('click', function() {
-								alert(this.innerHTML);
-							});
-							li.appendChild(a);
-							var sz = document.createElement('div');
-							sz.className = 'filesize';
-							sz.innerHTML = json.files[i]['size'];
-							li.appendChild(sz);
-							$("FileList").appendChild(li);
 						}
+						callback_FileList(self.files);
 					}
 				}
 			},
@@ -164,6 +152,42 @@ netrapUplink.prototype = {
 				alert('AJAX: Failure: ' + response);
 			}
 		});
+	},
+	uploadFile: function(file, callback_FileComplete, callback_FileProgress, callback_FileFailure) {
+		var self = this;
+// 		var r = new Ajax.Request('json/file-upload?filename=' + file.name + '&remaining=' + file.size, {
+// 			contentType: file.type || "text/plain",
+// 			onSuccess: function(response) {
+// 				if (callback_FileComplete)
+// 					callback_FileComplete(response);
+// 			},
+// 			onFailure: function(response) {
+// 				if (callback_FileFailure)
+// 					callback_FileFailure(response);
+// 			},
+// 			onInteractive: function(response) {
+// 				if (callback_FileProgress)
+// 					callback_FileProgress(response);
+// 			},
+// 		});
+		var xhr = new XMLHttpRequest();
+		if (xhr.upload) {
+			xhr.open("POST", 'json/file-upload', true);
+			$(xhr).upload.addEventListener('progress', function(e) { callback_FileProgress(e, xhr); }, false);
+			$(xhr).onreadystatechange = function(e) {
+				if (xhr.readyState == 4) {
+					if (xhr.status == 200) {
+						if (callback_FileComplete) callback_FileComplete(e, xhr);
+					}
+					else {
+						if (callback_FileFailure) callback_FileFailure(e, xhr);
+					}
+				}
+			};
+			xhr.setRequestHeader('filename', file.name);
+			xhr.setRequestHeader('remaining', file.size);
+			xhr.send(file);
+		}
 	},
 	printerList: function() {
 		return this.printers;
