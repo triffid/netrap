@@ -136,14 +136,14 @@ netrapUplink.prototype = {
 					alert(e);
 				}
 				if (json) {
-					if (json.files.length) {
-						self.files = [];
+					if (json.files instanceof Array) {
+						self.files = json.files;
 // 						while ($("FileList").childNodes.length) {
 // 							$("FileList").removeChild($("FileList").childNodes[0]);
 // 						}
-						for (var i = 0; i < json.files.length; i++) {
-							self.files.push(json.files[i]);
-						}
+// 						for (var i = 0; i < json.files.length; i++) {
+// 							self.files.push(json.files[i]);
+// 						}
 						callback_FileList(self.files);
 					}
 				}
@@ -155,21 +155,6 @@ netrapUplink.prototype = {
 	},
 	uploadFile: function(file, callback_FileComplete, callback_FileProgress, callback_FileFailure) {
 		var self = this;
-// 		var r = new Ajax.Request('json/file-upload?filename=' + file.name + '&remaining=' + file.size, {
-// 			contentType: file.type || "text/plain",
-// 			onSuccess: function(response) {
-// 				if (callback_FileComplete)
-// 					callback_FileComplete(response);
-// 			},
-// 			onFailure: function(response) {
-// 				if (callback_FileFailure)
-// 					callback_FileFailure(response);
-// 			},
-// 			onInteractive: function(response) {
-// 				if (callback_FileProgress)
-// 					callback_FileProgress(response);
-// 			},
-// 		});
 		var xhr = new XMLHttpRequest();
 		if (xhr.upload) {
 			xhr.open("POST", 'json/file-upload', true);
@@ -189,16 +174,73 @@ netrapUplink.prototype = {
 			xhr.send(file);
 		}
 	},
+	loadFile: function(file, printer, callback) {
+		var self = this;
+		var filename = file.name;
+
+		var realprinter = self.currentPrinter;
+		for (var i = 0, p; p = this.printers[i]; i++) {
+			if (p.name === printer || p === printer) {
+				realprinter = p.name;
+			}
+		}
+
+		// TODO: sanitise filename
+		filename.replace(/"/, '\\"');
+		var r = new Ajax.Request("json/printer-load", {
+			contentType: 'application/json',
+			parameters: '{"printer":"' + realprinter + '","file":"' + filename + '"}',
+			onSuccess: function(response) {
+// 				alert(response.responseJSON.file || response.responseJSON.error);
+				if (callback)
+					callback(response);
+			},
+			onFailure: function(response) {
+			},
+		});
+	},
+	deleteFile: function(file, callback) {
+		var self = this;
+		var filename = file.name;
+		var r = new Ajax.Request("json/file-delete", {
+			contentType: 'application/json',
+			parameters: '{"file":"' + filename + '"}',
+			onSuccess: function(response) {
+				if (callback)
+					callback(response, filename);
+			},
+		});
+	},
 	printerList: function() {
 		return this.printers;
 	},
+	printerStart: function(printer, callback) {
+		var self = this;
+		var realprinter = self.currentPrinter
+		for (var i = 0, p; p = this.printers[i]; i++) {
+			if (p.name === printer || p === printer) {
+				realprinter = p.name;
+			}
+		}
+// 		alert("Starting " + realprinter);
+		var r = new Ajax.Request("json/printer-start", {
+			contentType: 'application/json',
+			parameters: '{"printer":"' + realprinter + '"}',
+			onSuccess: function(response) {
+				if (response && response.responseJSON && response.responseJSON.error)
+					alert(response.responseJSON.error)
+				else if (callback)
+					callback(response);
+			},
+		});
+	},
 	selectPrinter: function(printer) {
 		// TODO: json: select printer
-		if (this.printers.indexOf(printer) >= 0) {
-			if (this.currentPrinter != printer) {
-// 				alert("Chose " + printer);
+		for (var i = 0, p; p = this.printers[i]; i++) {
+			if (p.name == printer) {
+				this.currentPrinter = p.name;
+				return;
 			}
-			this.currentPrinter = printer;
 		}
 	},
 	selectedPrinter: function() {

@@ -289,7 +289,7 @@ sub raw {
                 $self->{txbuffer} .= join("\n", splice(@{$self->{txqueue}}, 0))."\n";
             }
             if (@{$self->{replies}} > 0) {
-                $self->{rxbuffer} .= join("", splice(@{$self->{replies}}, 0))."\n";
+                $self->{rxbuffer} .= join("", splice(@{$self->{replies}}, 0));
             }
         }
         else {

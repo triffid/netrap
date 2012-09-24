@@ -74,7 +74,7 @@ sub WriteSelectorCallback {
 sub write {
     my $self = shift;
     return unless $self->{write};
-    print "File:Write\n";
+    printf "File:Write %d\n", length($_[0]);
     return $self->SUPER::write(@_);
 }
 

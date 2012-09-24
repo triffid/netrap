@@ -175,6 +175,7 @@ sub processHTTPRequest {
 #     $self->{responseheaders}->{'Connection'} = "keep-alive";
 
     my $content = "";
+    my %object;
 
     if ($url =~ m#\.\./# || $url =~ m#/\.\.#) {
         $self->{headers}->{responsecode} = 400;
@@ -192,7 +193,7 @@ sub processHTTPRequest {
             }
         }
 
-        my %object = (%{$self->{headers}});
+        %object = (%{$self->{headers}});
         if ($url =~ s/\?(.*)//) {
             my $args = $1;
             my @pairs = split /\&/, $args;
@@ -304,11 +305,10 @@ sub processHTTPRequest {
                                 close KID;
                                 if ($mime =~ m#^[\w\-]+/[\w\-]+$#) {
                                     $self->{responseheaders}->{'Content-Type'} = $mime;
-                                    die "$local: $mime";
                                 }
                             }
                             else {
-                                exec 'file', '--mime-types', '-b', $local or die $!;
+                                exec 'file', '--mime-type', '-b', $local or die $!;
                             }
                         }
                     }
@@ -349,8 +349,8 @@ sub processHTTPRequest {
         $self->readline() while $self->canread();
     }
 
-    my $log = "^remoteaddr;:^remoteport;\t^method; ^url; ^responsecode; ^size;\n";
-    $log =~ s/\^(\w+)\;/$self->{headers}->{$1} || $self->{$1}/eg;
+    my $log = "^remoteaddr;:^remoteport;\t^method; ^url; ^responsecode; ^size; ^error;\n";
+    $log =~ s/\^(\w+)\;/$self->{headers}->{$1} || $self->{$1} || $object{$1}/eg;
     print $log;
 
     $self->requestComplete();

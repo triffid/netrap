@@ -123,3 +123,45 @@ div.toolbar > div#printername {
 	top: -3em;
 	vertical-align: middle;
 }
+
+#FileList {
+	list-style-type: none;
+	text-indent: 0;
+	padding-left: 1em;
+}
+
+#FileList > li {
+	clear: both;
+}
+
+#FileList > li > a {
+	margin-left: 1em;
+}
+
+.filesize {
+	display: inline;
+	padding-left: 2em;
+}
+
+.fileaction {
+	float: left;
+	display: block;
+	border: 2px outset gray;
+	border-radius: 4px;
+}
+
+.fileaction:active {
+	border-style: inset;
+	opacity: 0.8;
+}
+
+.fileaction_load {
+	background-color: #8F8;
+	font-size: 133%;
+	padding: 0 0.5em;
+}
+
+.fileaction_delete {
+	background-color: #FD8;
+	float: right;
+}

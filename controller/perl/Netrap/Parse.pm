@@ -18,6 +18,8 @@ sub socket_list {
     my $requestor = shift;
     my $object = shift;
 
+    $object = {} unless ref($object) eq 'HASH';
+
     $object->{sockets} = [];
 
     for (values %Netrap::Socket::sockets) {
@@ -152,7 +154,13 @@ sub printer_list {
 
     for (keys %Netrap::Socket::Printer::PrinterSockets) {
         my $printer = $Netrap::Socket::Printer::PrinterSockets{$_};
-        push @{$object->{printers}}, $printer->{name};
+        my $item = {'name'=>$printer->{name}};
+        if ($printer->{file}) {
+            $item->{file} = $printer->{file}->{filename};
+            $item->{filepos} = $printer->{file}->tell();
+            $item->{filesize} = $printer->{file}->length();
+        }
+        push @{$object->{printers}}, $item;
     }
     $object->{printercount} = @{$object->{printers}};
     return $object;
@@ -162,9 +170,8 @@ sub printer_load {
     my $requestor = shift;
     my $object = shift;
 
-#     print Dumper \$requestor;
-
     return {'status' => 'ok'} if defined $requestor->{remaining} && $requestor->{remaining} > 0;
+
 
     my @printers = search_printer($requestor, $object);
     if (@printers > 1) {
@@ -177,10 +184,14 @@ sub printer_load {
     my $printer = $printers[0];
 
     if (ref($object) ne 'HASH') {
-        $object = {"name" => $object};
+        $object = {"file" => $object};
     }
-    if (-r $upload_dir . $object->{name}) {
-        my $file = new Netrap::Socket::File($upload_dir . $object->{name});
+
+    printf "Looking for '%s'\n", $upload_dir . $object->{file};
+
+    if (-f $upload_dir . $object->{file}) {
+        printf "Found!\n";
+        my $file = new Netrap::Socket::File($upload_dir . $object->{file});
         if ($file) {
             $file->freeze(1);
             $printer->{FlowManager}->addFeeder($file);
@@ -202,6 +213,8 @@ sub printer_load {
 sub printer_start {
     my $requestor = shift;
     my $object = shift;
+
+    return {'status' => 'ok'} if defined $requestor->{remaining} && $requestor->{remaining} > 0;
 
     my @printers = search_printer($requestor, $object);
     if (@printers > 1) {
@@ -450,22 +463,25 @@ sub file_upload {
         $object = {'filename' => $filename};
     }
     else {
+#         print Dumper $object;
         $filename = $object->{filename} if $object->{filename};
         $remaining = $object->{remaining} if $object->{remaining};
+#         printf "GOT %d: %s\n", $remaining, $filename;
     }
 
     if (!defined $remaining && defined $requestor->{remaining}) {
         $remaining = $requestor->{remaining};
     }
 
-    if (defined $remaining && $remaining =~ /^\d+$/ && $remaining > 0 && $filename =~ m#^[a-z][^/:]+\.[^/:]+$#) {
+    if (defined $remaining && $remaining =~ /^\d+$/ && $remaining > 0 && $filename =~ m#^[a-z][^/:]+\.[^/:]+$#i) {
         $requestor->{uploading} = $remaining;
         my $file = new Netrap::Socket::File($upload_dir . $filename, 'w');
         if ($file) {
+#             print Dumper $requestor;
             $requestor->raw(1);
-            $file->raw(1);
             $file->readmode(0);
             $file->writemode(1);
+            $file->raw(1);
             my $fm = new Netrap::FlowManager();
             $fm->maxData($remaining);
             $fm->addFeeder($requestor);

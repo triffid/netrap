@@ -7,6 +7,7 @@
 		<script src="js/boundvalue.js"></script>
 		<script src="js/jog.js"></script>
 		<link rel="stylesheet" type="text/css" href="css/style.css">
+		<link rel="stylesheet" type="text/css" href="css/font-awesome.css">
 		<link rel="icon" type="image/png" href="favicon.png">
 	</head>
 	<body>
@@ -68,29 +69,84 @@
 					return size + 'b';
 				}
 
+				function callback_LoadFile(file) {
+					netrap.loadFile(file);
+				}
+
+				function callback_DeleteFile(file) {
+					netrap.deleteFile(file, function(response) {
+						if (response && response.responseJSON && response.responseJSON.file) {
+							for (var i = 0, lia; lia = $('FileList').childNodes[i]; i++) {
+								if (lia.childNodes[0].innerHTML == response.responseJSON.file) {
+									$('FileList').removeChild($('FileList').childNodes[i]);
+									i--;
+								}
+							}
+						}
+					});
+				}
+
+				function callback_PlayFile() {
+					netrap.printerStart();
+				}
+
+				function addFile(file) {
+					var li = document.createElement('li');
+					var a = document.createElement('a');
+
+					a.innerHTML = file.name;
+					a.href = '#file=' + file.name;
+					a.file = file;
+					a.filename = file.name;
+					a.observe('click', function() {
+						callback_LoadFile(file);
+					});
+					li.appendChild(a);
+
+					var sz = document.createElement('div');
+					sz.className = 'filesize';
+					sz.innerHTML = nicesize(file.size);
+
+					li.appendChild(sz);
+
+					if ($('printername').innerHTML) {
+						var act_play = document.createElement('div');
+						act_play.className = 'fileaction fileaction_load icon-play';
+						act_play.title = 'Play';
+						act_play.observe('click', function() {
+							netrap.loadFile(file, undefined, callback_PlayFile);
+						});
+
+						li.appendChild(act_play);
+
+						var act_load = document.createElement('div');
+						act_load.className = 'fileaction fileaction_load icon-link';
+						act_load.title = 'Load';
+						act_load.observe('click', function() {
+							callback_LoadFile(file);
+						});
+
+						li.appendChild(act_load);
+					}
+
+					var act_del = document.createElement('div');
+					act_del.className = 'fileaction fileaction_delete icon-remove';
+					act_del.title = 'Delete';
+					act_del.observe('click', function() {
+						callback_DeleteFile(file);
+					});
+
+					li.appendChild(act_del);
+
+					$("FileList").appendChild(li);
+				}
+
 				function callback_FileList(files) {
 					while ($("FileList").childNodes.length) {
 						$("FileList").removeChild($("FileList").childNodes[0]);
 					}
-					for (var i = 0; i < files.length; i++) {
-						var li = document.createElement('li');
-						var a = document.createElement('a');
-						var sz = document.createElement('div');
-
-						a.innerHTML = files[i]['name'];
-						a.href = '#file=' + files[i]['name'];
-						a.file = files[i];
-						a.filename = files[i]['name'];
-						a.observe('click', function() {
-							alert(this.filename);
-						});
-						li.appendChild(a);
-
-						sz.className = 'filesize';
-						sz.innerHTML = nicesize(files[i]['size']);
-						li.appendChild(sz);
-
-						$("FileList").appendChild(li);
+					for (var i = 0, file; file = files[i]; i++) {
+						addFile(file);
 					}
 				}
 
@@ -176,7 +232,7 @@
 					for (var i = 0; i < printers.length; i++) {
 						var printer = printers[i];
 
-						if (existingprinters.indexOf(printer) < 0) {
+						if (existingprinters.indexOf(printer.name) < 0) {
 							var printerdiv = document.createElement('div');
 							printerdiv.className = 'printer';
 
@@ -184,9 +240,9 @@
 							newimg.src = 'images/prusa_icon.png';
 
 							printerdiv.appendChild(newimg);
-							printerdiv.innerHTML += '<br />' + printer;
+							printerdiv.innerHTML += '<br />' + printer.name;
 
-							printerdiv.printername = printer;
+							printerdiv.printername = printer.name;
 							printerdiv.observe('click', callback_printerclick);
 
 							$('printerbar').appendChild(printerdiv);
@@ -209,14 +265,15 @@
 							window.setTimeout(function() {
 								callback_FileUpload_NextFile();
 							}, 100);
-							for (var i = 0, lia; lia = $('FileList').childNodes[i][0]; i++) {
-								if (lia.innerHTML == file.name) {
+							for (var i = 0, lia; lia = $('FileList').childNodes[i]; i++) {
+								if (lia.childNodes[0].innerHTML == file.name) {
 									$('FileList').removeChild($('FileList').childNodes[i]);
 									i--;
 								}
 							}
-							netrap.files.push({'name': file.name, 'size':file.size});
-							callback_FileList(netrap.files);
+							addFile(file);
+// 							netrap.files.push({'name': file.name, 'size':file.size});
+// 							callback_FileList(netrap.files);
 						},
 						function(response) {
 							var percent = Math.round(response.loaded * 1000 / response.total) / 10;
@@ -255,6 +312,7 @@
 // 						lastfilediv = uf;
 					}
 					callback_FileUpload_NextFile();
+					this.clear();
 					return false;
 				};
 

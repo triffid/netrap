@@ -150,7 +150,7 @@ sub sinkRequestData {
             my $length;
 #             printf "%s can read; ", $feeder->describe();
             if ($feeder->raw()) {
-                $data = $feeder->read();
+                $data = $feeder->read($self->{maxdata} || 4096);
                 $length = length($data);
             }
             else {
@@ -198,7 +198,7 @@ sub feederProvideData {
             if (!defined $line) {
                 my $length;
                 if ($feeder->raw()) {
-                    $line = $feeder->read();
+                    $line = $feeder->read($self->{maxdata} || 4096);
                     $length = length($line);
                 }
                 else {
