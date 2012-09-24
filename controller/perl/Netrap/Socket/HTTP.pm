@@ -247,7 +247,13 @@ sub processHTTPRequest {
                     if (length($self->{content}) >= $self->{headers}->{"content-length"}) {
                         $response = {%object, 'status' => 'error', 'error' => scalar($response)} unless ref($response) eq 'HASH';
                         delete $response->{content};
-                        $content = encode_json $response;
+                        eval {
+                            $content = encode_json $response;
+                        }
+                        or do {
+                            print "Weird data in response:";
+                            print Dumper \$response;
+                        };
                     }
                     elsif (ref($response) eq 'HASH' && $response->{status} =~ /ok/i) {
 #                         printf "Waiting for data\n";
