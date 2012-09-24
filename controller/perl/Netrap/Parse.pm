@@ -112,7 +112,7 @@ sub printer_add {
             $object->{"port"} = $port;
         }
     }
-    if ($port) {
+    if ($device && $port && $port =~ /^\d+$/) {
         printf "Connecting to TCP printer at %s:%d\n", $device, $port;
         my $sock = new IO::Socket::INET(PeerAddr => $device, PeerPort => $port, Proto => 'tcp', Blocking => 0) or return "error: $!";
         my $newprinter = new Netrap::Socket::Printer($sock);
@@ -120,7 +120,7 @@ sub printer_add {
         printf "Printer %s Created\n", $newprinter->{name};
         return {"printer" => $newprinter->{name}};
     }
-    else {
+    elsif ($device && $baud && $baud =~ /^\d+$/) {
 #         printf "Could not connect to %s %d\n", $device, $baud;
         printf "Connecting to Serial printer at %s @%d\n", $device, $baud;
         my $sock = IO::Termios->open($device) or return "error: $!";
@@ -135,6 +135,9 @@ sub printer_add {
             return {%{$object}, "printer" => $newprinter->{name}};
         }
         die Dumper \$sock;
+    }
+    else {
+        return sprintf "Invalid printer specification: %s", $object;
     }
     return %{$object};
 }
@@ -288,9 +291,49 @@ sub printer_stop {
 sub printer_query {
     my $requestor = shift;
     my $object = shift;
-    my @lines = split /\r?\n/, $object->{content};
-    print "Enqueue:\n";
-    print "\t$_\n" for @lines;
+
+#     print Dumper \$object;
+
+    my @matches = search_printer($requestor, $object);
+    if (@matches == 1) {
+        my $printer = $matches[0];
+        if (ref($object) eq 'HASH' && $object->{"content-length"}) {
+            $printer->{FlowManager}->resetData();
+            $printer->{FlowManager}->maxData($object->{"content-length"});
+#             printf "CONTENT LENGTH %d\n", $printer->{FlowManager}->maxData();
+        }
+        $printer->raw(0);
+        $requestor->raw(0);
+        $requestor->{uploading} = 1;
+        $printer->{FlowManager}->addReceiver('Complete', $requestor, \&printer_query_complete);
+        $printer->{FlowManager}->addFeeder($requestor);
+        return {"status" => "ok", "FlowManager" => $printer->{FlowManager}, "SendHeader" => 1, "Content-Type" => "text/plain"};
+    }
+    return {"status" => "error", "error" => "Printer not found"};
+}
+
+sub printer_query_complete {
+    my $requestor = shift;
+    my $fm = shift;
+
+#     printf "PRINTER_QUERY_COMPLETE\n";
+
+    my $printer = $fm->{sinks}->{$fm->{sinkOrder}->[0]};
+    $printer->addReceiver('Token', $requestor, \&printer_query_last_response);
+    $fm->removeReceiver('Complete', $requestor, \&printer_query_complete);
+}
+
+sub printer_query_last_response {
+    my $requestor = shift;
+    my $printer = shift;
+
+#     printf "PRINTER_QUERY_LAST_RESPONSE %s\n", $requestor->describe();
+
+    $printer->removeReceiver('Token', $requestor, \&printer_query_last_response);
+    $printer->{FlowManager}->removeFeeder($requestor);
+
+    $requestor->flushrx();
+    $requestor->close();
 }
 
 sub printer_select {

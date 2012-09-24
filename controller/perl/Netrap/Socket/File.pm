@@ -16,8 +16,10 @@ sub new {
     my $class = ref($proto) || $proto;
 
     my $filename = shift;
-    my $mode = shift or 'r';
+    my $mode = shift;
     my $sock;
+
+    $mode = 'r' unless $mode =~ /^\+?[rwa<>]$/;
 
     $sock = new IO::File($filename, $mode) or return undef;
 

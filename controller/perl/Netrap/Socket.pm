@@ -115,7 +115,7 @@ sub ReadSelectorCallback {
     if ($r == 0) {
         $self->close();
     }
-    printf "Read %d bytes from %s: '%s'\n", $r, $self->{sock}, $buf;
+#     printf "Read %d bytes from %s: '%s'\n", $r, $self->{sock}, $buf;
     $self->{rxbuffer} .= $buf;
 
     if (!$self->{raw}) {
@@ -165,7 +165,7 @@ sub WriteSelectorCallback {
     }
     if (length($self->{txbuffer})) {
         $w = syswrite($self->{sock}, $self->{txbuffer});
-        printf "Wrote %d of %d bytes: %s\n", $w, length($self->{txbuffer}),
+#         printf "%s Wrote %d of %d bytes: %s\n", $self->describe(), $w, length($self->{txbuffer}),
         $written = substr($self->{txbuffer}, 0, $w, "");
         if ($w > 0) {
             $self->fireEvent('Write', $w, $written) unless $suppressEvents;
@@ -177,8 +177,9 @@ sub WriteSelectorCallback {
 
     if ($self->canwrite()) {
         $WriteSelector->remove($self->{sock});
-        $self->fireEvent('CanWrite') unless $suppressEvents;
-        $self->checkclose();
+        if ($self->checkclose() == 0) {
+            $self->fireEvent('CanWrite') unless $suppressEvents;
+        }
     }
 
     return $written if $w;
@@ -209,7 +210,7 @@ sub write {
 
 sub canread {
     my $self = shift;
-    printf "[%s CanRead? %d %d %d]\n", $self->describe(), scalar(@{$self->{replies}}), length($self->{rxbuffer}), $self->{raw};
+#     printf "[%s CanRead? %d %d %d]\n", $self->describe(), scalar(@{$self->{replies}}), length($self->{rxbuffer}), $self->{raw};
     return 1 if @{$self->{replies}};
     return 1 if length($self->{rxbuffer}) && $self->{raw};
     return 0;
@@ -272,7 +273,7 @@ sub readline {
                 ${$_[0]} = length($line);
             }
             $line =~ s/\r?\n$//;
-            printf "ReadLine '%s'\n", $line;
+#             printf "ReadLine '%s'\n", $line;
             return $line;
         }
         return undef;
@@ -282,13 +283,21 @@ sub readline {
 sub raw {
     my $self = shift;
     if (@_) {
-        $self->{raw} = shift // $self->{raw};
-        if ($self->{raw} && @{$self->{txqueue}} > 0) {
-            $self->{txbuffer} .= join("\n", splice(@{$self->{txqueue}}, 0))."\n";
+        $self->{raw} = (shift // $self->{raw})?1:0;
+        if ($self->{raw}) {
+            if (@{$self->{txqueue}} > 0) {
+                $self->{txbuffer} .= join("\n", splice(@{$self->{txqueue}}, 0))."\n";
+            }
+            if (@{$self->{replies}} > 0) {
+                $self->{rxbuffer} .= join("", splice(@{$self->{replies}}, 0))."\n";
+            }
         }
-        if ($self->{raw} && @{$self->{replies}} > 0) {
-            $self->{rxbuffer} .= join("\n", splice(@{$self->{replies}}, 0))."\n";
+        else {
+            while ($self->{rxbuffer} =~ s/^(.*?\r?\n)//e) {
+                push @{$self->{replies}}, $1;
+            }
         }
+#         printf "%s set to %s\n", $self->describe(), $self->{raw}?"raw":"line";
     }
     return $self->{raw};
 }
@@ -313,7 +322,7 @@ sub checkclose {
 #         printf "%s Closed\n", $self->describe();
         return 1;
     }
-#     printf "%d %d %d (%d %d)\n", $self->{close}, $self->canread(), $self->canwrite(), length($self->{txbuffer}), scalar(@{$self->{txqueue}});
+#     printf "checkclose %s: %d %d %d (%d %d)\n", $self->describe(), $self->{close}, $self->canread(), $self->canwrite(), length($self->{txbuffer}), scalar(@{$self->{txqueue}});
     return 0;
 }
 

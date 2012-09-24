@@ -13,19 +13,23 @@ use List::Util qw(first);
 sub _addFeeder {
     my $self = shift;
     my $feeder = shift or die;
-    $self->{feeders}->{$feeder} = $feeder;
-    push @{$self->{feederOrder}}, "$feeder";
-    $feeder->addReceiver('Read',  $self, $self->can('feederProvideData')) unless $self->{frozen};
-    $feeder->addReceiver('Close', $self, $self->can('removeFeeder'));
+    if (!exists $self->{feeders}->{$feeder}) {
+        $self->{feeders}->{$feeder} = $feeder;
+        push @{$self->{feederOrder}}, "$feeder";
+        $feeder->addReceiver('Read',  $self, $self->can('feederProvideData')) unless $self->{frozen};
+        $feeder->addReceiver('Close', $self, $self->can('removeFeeder'));
+    }
 }
 
 sub _addSink {
     my $self = shift;
     my $sink = shift;
-    $self->{sinks}->{$sink} = $sink;
-    push @{$self->{sinkOrder}}, "$sink";
-    $sink->addReceiver('CanWrite', $self, $self->can('sinkRequestData')) unless $self->{frozen};
-    $sink->addReceiver('Close', $self, $self->can('removeSink'));
+    if (!exists $self->{sinks}->{$sink}) {
+        $self->{sinks}->{$sink} = $sink;
+        push @{$self->{sinkOrder}}, "$sink";
+        $sink->addReceiver('CanWrite', $self, $self->can('sinkRequestData')) unless $self->{frozen};
+        $sink->addReceiver('Close', $self, $self->can('removeSink'));
+    }
 }
 
 sub new {
@@ -130,7 +134,9 @@ sub sinkRequestData {
     my $self = shift;
     my $sink = shift;
 
-    printf "sinkRequestData\n";
+#     printf "sinkRequestData\n";
+
+#     print Dumper $self;
 
     return undef if $self->{frozen};
 
@@ -142,7 +148,7 @@ sub sinkRequestData {
         if ($feeder->canread()) {
             my $data;
             my $length;
-            printf "%s can read; ", $feeder->describe();
+#             printf "%s can read; ", $feeder->describe();
             if ($feeder->raw()) {
                 $data = $feeder->read();
                 $length = length($data);
@@ -152,7 +158,7 @@ sub sinkRequestData {
             }
 #             my $displaydata = $data;
 #             $displaydata =~ s/([\x0-\x1A\x7E-\xFF])/sprintf "\\x%02X", ord $1/ge;
-#             printf "%s provides '%s'\n", $feeder->describe(), $displaydata;
+#             printf "%s provides %d: '%s'\n", $feeder->describe(), $length, $displaydata;
             if (defined $data && $length > 0) {
                 $sink->write($data);
                 $self->{datacount} += $length;
@@ -160,10 +166,10 @@ sub sinkRequestData {
                     if ($self->{datacount} >= $self->{maxdata}) {
                         $self->fireEvent('Complete');
                     }
-                    print "Transferred %d of %d bytes\n", $self->{datacount}, $self->{maxdata};
+#                     printf "Transferred %d of %d bytes\n", $self->{datacount}, $self->{maxdata};
                 }
                 push @{$self->{feederOrder}}, shift @{$self->{feederOrder}};
-                printf "sinkRequestData: got data from feeder %s\n", $feeder;
+#                 printf "sinkRequestData: got data from feeder %s\n", $feeder;
                 return $feeder;
             }
         }
@@ -178,7 +184,7 @@ sub feederProvideData {
     my $self = shift;
     my $feeder = shift;
 
-    printf "feederProvideData\n";
+#     printf "feederProvideData\n";
 
     return undef if $self->{frozen};
 
@@ -212,13 +218,14 @@ sub feederProvideData {
                 if ($self->{datacount} >= $self->{maxdata}) {
                     $self->fireEvent('Complete');
                 }
+#                 printf "Transferred %d of %d bytes\n", $self->{datacount}, $self->{maxdata};
             }
             shift @{$self->{sinkOrder}};
             push @{$self->{sinkOrder}}, $_;
             return $sink;
         }
     }
-    printf "feederProvideData return\n";
+#     printf "feederProvideData return\n";
     return undef
 }
 

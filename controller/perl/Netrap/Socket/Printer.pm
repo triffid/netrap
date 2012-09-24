@@ -167,7 +167,7 @@ sub checkclose {
 
     my $r = $self->SUPER::checkclose(@_);
 
-    if ($r == 1) {
+    if ($r) {
         delete $PrinterSockets{$self};
     }
 

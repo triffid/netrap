@@ -146,6 +146,8 @@ sub WriteSelectorCallback {
 sub sendHeader {
     my $self = shift;
 
+    return undef if $self->{headers}->{HeaderSent};
+
     $self->raw(0);
     $self->write(sprintf "HTTP/1.1 %s %s", $self->{headers}->{responsecode}, $self->{headers}->{responsedesc});
     $self->{responseheaders}->{"Connection"} = $self->{headers}->{"connection"} unless $self->{responseheaders}->{"Connection"};
@@ -154,6 +156,8 @@ sub sendHeader {
         $self->write(sprintf "%s: %s", $_, $self->{responseheaders}->{$_});
     }
     $self->write("");
+    $self->{headers}->{HeaderSent} = 1;
+    return 1;
 }
 
 sub processHTTPRequest {
@@ -188,7 +192,7 @@ sub processHTTPRequest {
             }
         }
 
-        my %object;
+        my %object = (%{$self->{headers}});
         if ($url =~ s/\?(.*)//) {
             my $args = $1;
             my @pairs = split /\&/, $args;
@@ -196,6 +200,8 @@ sub processHTTPRequest {
                 my $key = $_;
                 my $value;
                 $value = $1 if $key =~ s/=(.*)//;
+                $key =~ s/%([0-9A-F]{2})/chr hex $1/eg;
+                $value =~ s/%([0-9A-F]{2})/chr hex $1/eg;
                 if ($object{$key}) {
                     if (ref($object{$key}) eq 'ARRAY') {
                         push @{$object{$key}}, $value;
@@ -217,24 +223,26 @@ sub processHTTPRequest {
             if ($self->{headers}->{"content-length"} && !defined $self->{remaining}) {
                 $self->{"remaining"} = $self->{headers}->{"content-length"} - length($self->{content});
             }
-            $content = encode_json {'status' => 'error', 'error' => 'unrecognised target or action'};
+            $content = encode_json {'status' => 'error', 'error' => sprintf 'unrecognised target or action: %s', $jsonurl};
             if ($jsonurl =~ m#^(\w+)-(\w+)$#) {
                 my ($target, $action) = ($1, $2);
 #                 printf "Parsing %s:%s\n", $target, $action, $self->{content};
 #                 die Dumper Netrap::Parse::actions($target, $action);
                 if (my $callback = Netrap::Parse::actions($target, $action)) {
+#                     printf "Got callback\n";
                     %object = (%object, 'target' => $target, 'action' => $action, 'status' => 'OK', 'content' => $self->{content} );
 #                     die Dumper \$self;
                     if ($self->{content} && $self->{headers}->{'content-type'} =~ m#^application/json\b#) {
                         eval {
                             my $json = decode_json($self->{content});
 #                             printf "Got %s\n", Data::Dumper->Dump([$json], [qw'json']) if $json;
-                            %object = {%object, %{$json}};
-                        } or %object = {%object, 'status' => 'error', 'error' => $!};
+                            %object = (%object, %{$json});
+                        } or %object = (%object, 'status' => 'error', 'error' => $!);
                     }
 
-                    print Dumper \%object;
+#                     print Dumper \%object;
                     my $response = $callback->($self, \%object);
+#                     print Dumper $response;
 
                     if (length($self->{content}) >= $self->{headers}->{"content-length"}) {
                         $response = {%object, 'status' => 'error', 'error' => scalar($response)} unless ref($response) eq 'HASH';
@@ -242,7 +250,7 @@ sub processHTTPRequest {
                         $content = encode_json $response;
                     }
                     elsif (ref($response) eq 'HASH' && $response->{status} =~ /ok/i) {
-                        printf "Waiting for data\n";
+#                         printf "Waiting for data\n";
                         $self->{state} = STATE_GET_DATA;
                         if ($response->{UploadManager}) {
                             $response->{UploadManager}->addReceiver('Complete', $self, sub { $self->uploadComplete(\%object); });
@@ -254,7 +262,18 @@ sub processHTTPRequest {
 #                             $self->addReceiver('Read', $self, sub { print Dumper $self->{UploadManager}; });
 #                             $self->sendHeader();
                         }
+                        if ($response->{SendHeader}) {
+                            $self->sendHeader();
+                        }
                         return 0;
+                    }
+                    else {
+                        if (ref($response)) {
+                            $content = encode_json $response;
+                        }
+                        elsif ($response) {
+                            $content = $response
+                        }
                     }
                 }
             }
@@ -271,7 +290,7 @@ sub processHTTPRequest {
                         $self->{responseheaders}->{'Content-Type'} = $mime_types{$1};
                     }
                     else {
-                        # same as qx// except we don't havae to sanitise the filename
+                        # same as qx// except we don't have to sanitise the filename
                         my $pid = open(KID, "-|");
                         if (defined $pid) {
                             if ($pid) {
@@ -349,9 +368,9 @@ sub uploadComplete() {
 
     $self->{responseheaders}->{"Content-Length"} = length($content);
 
-    $self->sendHeader();
-
-    $self->write($content);
+    if ($self->sendHeader()) {
+        $self->write($content);
+    }
 
     $self->requestComplete();
 }
@@ -384,7 +403,7 @@ sub requestComplete() {
     $self->{headers} = {};
 }
 
-sub readline() {
+sub readline {
     my $self = shift;
     my $length;
 
@@ -392,6 +411,10 @@ sub readline() {
 
     if ($self->{remaining}) {
         $self->{remaining} -= $length;
+    }
+
+    if (@_ && $_[0] && ref($_[0]) eq 'SCALAR') {
+        ${$_[0]} = $length;
     }
 
     return $line;

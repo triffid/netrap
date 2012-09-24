@@ -10,11 +10,11 @@ our @events;
 
 sub runEvents {
     while (@events) {
-        my ($function, $instance, $self, $args) = @{shift @events};
+        my ($eventName, $function, $instance, $self, $args) = @{shift @events};
         my @args = @{$args};
-        printf "%s->%s(%s)\n", $instance, $function, $self;
+#         printf "%s->%s:%s(%s)\n", $instance, $function, $eventName, $self;
         $function->($instance, $self, @args);
-        print "ok\n";
+#         print "ok\n";
     }
 #     print "end events\n";
 }
@@ -79,6 +79,11 @@ sub addReceiver {
         unless exists $self->{Events}->{$eventName};
 
 #     printf "%s:addReceiver \"%s\" %s %s\n", $self->describe(), $eventName, $instance->describe(), $function;
+
+    if (grep { $_->[0] == $instance && $_->[1] == $function } @{$self->{Events}->{$eventName}}) {
+        printf "Attempt to add duplicate receiver %s %s to Event %s on %s\n", $instance, $function, $eventName, $self->describe();
+        return;
+    }
 
     push @{$self->{Events}->{$eventName}}, [$instance, $function];
 }
@@ -145,7 +150,7 @@ sub fireEvent {
 
     return unless $self->{Events}->{$eventName} && ref($self->{Events}->{$eventName}) eq 'ARRAY';
 
-    printf "%s fires %s\n", $self->describe(), $eventName;
+#     printf "%s fires %s\n", $self->describe(), $eventName;
 
 #     print Dumper $self->{Events}->{$eventName};
 
@@ -156,7 +161,7 @@ sub fireEvent {
         $nreceivers++;
 #         printf "Receives:[%s->%s] ", $function, $instance->describe();
 #         $function->($instance, $self, @_);
-        push @events, [$function, $instance, $self, [@_]];
+        push @events, [$eventName, $function, $instance, $self, [@_]];
     }
 #     printf "\nEvent distributed to %d with %d receivers\n", $nreceivers, scalar(@{$self->{Events}->{$eventName}});
     return $nreceivers;
