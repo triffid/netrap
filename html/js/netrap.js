@@ -47,17 +47,14 @@ netrapUplink.prototype = {
 		this.queue[this.queue.length] = cmd;
 	},
 	queueCommit: function() {
-		// TODO: json: send commands
-// 		alert(this.queue.join("\n"));
+		var self = this;
 		try {
-		var r = new Ajax.Request("json/printer-enqueue", {
-			contentType: "text/plain",
-			parameters: this.queue.join("\n") + "\n",
-			onSuccess: function (response) {
-				var json = response.responseText.evalJSON(true);
-// 				alert('AJAX: Success: ' + response);
-			},
-		});
+			var r = new Ajax.Request("json/printer-query?printer=" + self.currentPrinter, {
+				contentType: "text/plain",
+				parameters: this.queue.join("\n") + "\n",
+				onSuccess: function (response) {
+				},
+			});
 		} catch (e) {
 			alert(e);
 		}
@@ -65,27 +62,30 @@ netrapUplink.prototype = {
 	},
 	query: function(query) {
 		var self = this;
-		var r = new Ajax.Request("json/printer-query", {
+		var r = new Ajax.Request("json/printer-query?printer=" + self.currentPrinter, {
 			contentType: "text/plain",
-			parameters: "use printer " + self.currentPrinter + "\n" + query + "\n",
+			parameters: query + "\n",
 			onSuccess: function (response) {
 				try {
-					var json = response.responseText.evalJSON(true);
+					var responseText = response.responseText;
+					var replies = response.responseText.split("\n");
+					if (replies[replies.length-1] === "")
+						replies.pop();
 				} catch (e) {
 					alert(e);
 				}
 				// 				alert('AJAX: Success: ' + response);
-				if (json) {
-					if (json.replies) {
-						var queries = response.request.body.split("\n");
-						for (var i = 0; i < json.replies.length; i++) {
-							$('log').value += "< " + json.replies[i] + "\n";
-							$('log').scrollTop = $('log').scrollHeight;
-							try {
-								self.parseReply(queries[i], json.replies[i]);
-							} catch (e) {
-								alert(e);
-							}
+				if (replies) {
+					var queries = response.request.body.split("\n");
+					if (queries[queries.length - 1] === "")
+						queries.pop();
+					for (var i = 0; i < replies.length; i++) {
+						$('log').value += "< " + replies[i] + "\n";
+						$('log').scrollTop = $('log').scrollHeight;
+						try {
+							self.parseReply(queries[i], replies[i]);
+						} catch (e) {
+							alert(e);
 						}
 					}
 				}
