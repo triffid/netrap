@@ -18,7 +18,12 @@
 				<label for="input_serialport">Device:</label>
 				<input type="text" name="serialport" id="input_serialport" placeholder="/dev/ttyACM0" pattern="/dev/.*|COM\d+"><br>
 				<label for="input_baud">Baud:</label>
-				<input type="number" name="baud" id="input_baud" placeholder="115200" min="300" max="2000000">
+				<select name="baud" id="input_baud">
+					<option>38400</option>
+					<option>57600</option>
+					<option selected>115200</option>
+					<option>250000</option>
+				</select>
 			</div>
 			<div id="add_tcpprinter">
 				<h3>TCP Printer</h3>
