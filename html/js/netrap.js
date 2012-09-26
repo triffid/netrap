@@ -246,26 +246,30 @@ netrapUplink.prototype = {
 	selectedPrinter: function() {
 		return this.currentPrinter;
 	},
-	addSerialPrinter: function(device, baud) {
+	addSerialPrinter: function(device, baud, callback) {
 		var self = this;
-		var r = new Ajax.Request("json/printer", {
+		var r = new Ajax.Request("json/printer-add", {
 			contentType: "application/json",
-			parameters: '{"device":"' + device + '","baud":' + math.parseInt(baud) + '}',
+			parameters: '{"device":"' + device + '","baud":' + parseInt(baud) + '}',
 			onSuccess: function(response) {
 				self.refreshPrinterList();
+				if (callback)
+					callback(this);
 			},
 			onFailure: function(response) {
 				alert("Could not add Serial Printer " + device + ": " + response.responseText);
 			}
 		});
 	},
-	addTCPPrinter: function(device, port) {
+	addTCPPrinter: function(device, port, callback) {
 		var self = this;
-		var r = new Ajax.Request("json/printer", {
+		var r = new Ajax.Request("json/printer-add", {
 			contentType: "application/json",
-			parameters: '{"device":"' + device + '","port":' + math.parseInt(port) + '}',
+			parameters: '{"device":"' + device + '","port":' + parseInt(port) + '}',
 			onSuccess: function(response) {
 				self.refreshPrinterList();
+				if (callback)
+					callback(this);
 			},
 			onFailure: function(response) {
 				alert("Could not add TCP Printer " + device + ": " + response.responseText);

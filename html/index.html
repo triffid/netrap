@@ -11,8 +11,27 @@
 		<link rel="icon" type="image/png" href="favicon.png">
 	</head>
 	<body>
+		<div id="shadow"></div>
+		<form id="addprinter">
+			<div id="add_serialprinter">
+				<h3>Serial Printer</h3>
+				<label for="input_serialport">Device:</label>
+				<input type="text" name="serialport" id="input_serialport" placeholder="/dev/ttyACM0" pattern="/dev/.*|COM\d+"><br>
+				<label for="input_baud">Baud:</label>
+				<input type="number" name="baud" id="input_baud" placeholder="115200" min="300" max="2000000">
+			</div>
+			<div id="add_tcpprinter">
+				<h3>TCP Printer</h3>
+				<label for="input_hostname">Host:</label>
+				<input type="text" name="hostname" id="input_hostname" placeholder="192.168.1.73"><br>
+				<label for="input_port">Port:</label>
+				<input type="number" name="port" id="input_port" placeholder="2560" min="0" max="65535">
+			</div>
+			<br>
+			<input type="submit" value="Add" id="submit_addprinter">
+		</form>
 		<div class="toolbar">
-			<div class="printerbar" id="printerbar"><input type="button" id="refreshPrinters" value="R" /><input type="button" id="addPrinter" value="+" /></div><br />
+			<div class="printerbar" id="printerbar"><input type="button" id="refreshPrinters" value="R" /><input type="button" id="button_addPrinter" value="+" /></div><br />
 			<div style="overflow: visible; white-space: nowrap;" id="printername"></div><br style="clear: right;" />
 			<div><input type="checkbox" id="monitor" /><span label="monitor">Monitor Printer</span></div>
 			<div><input type="button" id="getpos" value="Get Pos" /></div>
@@ -20,7 +39,6 @@
 			<div><input type="button" id="turnon" value="On" style="background-color: #8D8;" /></div>
 			<div><input type="button" id="turnoff" value="Off" style="background-color: #D88;" /></div>
 		</div>
-
 		<br class="clear" />
 		<div class="tabs" id="tabbar">
 			<div class="tabbutton" id="PrinterTabButton">Printer</div>
@@ -320,6 +338,33 @@
 				jogZ.observe('click', callback_jogEvent);
 				jogE.observe('click', callback_jogEvent);
 
+				function printer_added(response) {
+					window.setTimeout(refreshPrinterList, 100);
+				}
+
+				$('button_addPrinter').observe('click', function() {
+					$('shadow').className = 'visible';
+					$('addprinter').className = 'visible';
+					$('shadow').showing = $('addprinter');
+				});
+				$('shadow').observe('click', function() {
+					if (this.showing)
+						this.showing.className = '';
+					this.className = '';
+				});
+				$('submit_addprinter').observe('click', function(e) {
+					$('shadow').className = '';
+					$('addprinter').className = '';
+					if ($('input_serialport').value && $('input_baud').value) {
+						netrap.addSerialPrinter($('input_serialport').value, $('input_baud').value, printer_added);
+					}
+					else if ($('input_hostname').value && $('input_port').value) {
+						netrap.addTCPPrinter($('input_hostname').value, $('input_port').value, printer_added);
+					}
+					delete $('shadow').showing;
+					e.preventDefault();
+					e.stopPropagation();
+				});
 				$('refreshPrinters').observe('click', refreshPrinterList);
 				$('getpos').observe('click', function() {
 					$('log').value += "> M114\n";
