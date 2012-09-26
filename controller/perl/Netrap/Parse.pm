@@ -41,6 +41,11 @@ sub search_printer {
 
     my @printers;
 
+    if (scalar keys(%Netrap::Socket::Printer::PrinterSockets) == 1) {
+#         printf "Only one printer, returning %s\n", Dumper ((values(%Netrap::Socket::Printer::PrinterSockets))[0]);
+        return ((values(%Netrap::Socket::Printer::PrinterSockets))[0]);
+    }
+
     for (@_) {
         my $item = $_;
         if (ref($item)) {
@@ -119,6 +124,8 @@ sub printer_add {
         my $sock = new IO::Socket::INET(PeerAddr => $device, PeerPort => $port, Proto => 'tcp', Blocking => 0) or return "error: $!";
         my $newprinter = new Netrap::Socket::Printer($sock);
         $newprinter->{name} = sprintf "TCP:%s:%d", $device, $port;
+        $newprinter->{maxtoken} = 16;
+        $newprinter->{tokens} = $newprinter->{maxtoken};
         printf "Printer %s Created\n", $newprinter->{name};
         return {"printer" => $newprinter->{name}};
     }
@@ -187,16 +194,17 @@ sub printer_load {
         $object = {"file" => $object};
     }
 
-    printf "Looking for '%s'\n", $upload_dir . $object->{file};
+#     printf "Looking for '%s'\n", $upload_dir . $object->{file};
 
     if (-f $upload_dir . $object->{file}) {
-        printf "Found!\n";
+#         printf "Found!\n";
         my $file = new Netrap::Socket::File($upload_dir . $object->{file});
         if ($file) {
             $file->freeze(1);
             $printer->{FlowManager}->addFeeder($file);
             $object->{length} = $file->{length};
             $printer->{file} = $file;
+            $file->addReceiver('Close', $printer, $printer->can('fileComplete'));
             $object->{printer} = $printer->{name};
             return {%{$object}, 'status' => 'success'};
         }
@@ -310,6 +318,7 @@ sub printer_query {
     my @matches = search_printer($requestor, $object);
     if (@matches == 1) {
         my $printer = $matches[0];
+#         printf "Got Printer %s\n", Dumper $printer;
         if (ref($object) eq 'HASH' && $object->{"content-length"}) {
             $printer->{FlowManager}->resetData();
             $printer->{FlowManager}->maxData($object->{"content-length"});
@@ -376,7 +385,13 @@ sub printer_dump {
     my $requestor = shift;
     my $object = shift;
 
-    print Dumper \($requestor->{printer} or %Netrap::Socket::Printer::PrinterSockets);
+    my @matches = search_printer($requestor, $object);
+    if (@matches == 1) {
+        my $printer = $matches[0];
+
+        print Dumper $printer;
+        return $printer;
+    }
 
     return $requestor->{printer} or %Netrap::Socket::Printer::PrinterSockets;
 }
@@ -391,8 +406,29 @@ sub printer_close {
     }
     if (@printers == 1) {
         my $printer = $printers[0];
+        printf "Printer %s closing...\n", $printer->describe();
         $printer->close();
         return {'status' => 'ok', 'printer' => $printer->{name}};
+    }
+    return {'status' => 'error', 'error' => sprintf 'Printer not found'};
+}
+
+sub printer_poke {
+    my $requestor = shift;
+    my $object = shift;
+
+    my @printers = search_printer($requestor, $object);
+    if (@printers > 1) {
+        return {'status' => 'error', 'error' => sprintf 'Printer name ambiguous: %d printers matched', scalar @printers};
+    }
+    if (@printers == 1) {
+        my $printer = $printers[0];
+        my $t = $printer->{tokens};
+        my $mt = $printer->{maxtoken};
+        if ($t < $mt) {
+            $printer->poke();
+        }
+        return {'status' => 'ok', 'printer' => $printer->{name}, 'tokens' => $t, 'maxtoken' => $mt};
     }
     return {'status' => 'error', 'error' => sprintf 'Printer not found'};
 }
@@ -554,6 +590,7 @@ my %actions = (
         'select'   => \&printer_select,
         'use'      => \&printer_select,
         'dump'     => \&printer_dump,
+        'poke'     => \&printer_poke,
     },
     'file' => {
         'load'     => \&file_load,

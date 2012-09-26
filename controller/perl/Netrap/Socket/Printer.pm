@@ -167,11 +167,26 @@ sub checkclose {
 
     my $r = $self->SUPER::checkclose(@_);
 
+    printf "Printer checkclose %d\n", $r;
+
     if ($r) {
-        delete $PrinterSockets{$self};
+        delete $PrinterSockets{$self->{sock}};
     }
 
     return $r;
+}
+
+sub fileComplete {
+    my $self = shift;
+    my $sender = shift;
+
+    delete $self->{file};
+}
+
+sub poke {
+    my $self = shift;
+
+    $self->parseResponse('ok');
 }
 
 1;

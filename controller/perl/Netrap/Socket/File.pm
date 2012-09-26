@@ -40,7 +40,7 @@ sub new {
 
 sub describe {
     my $self = shift;
-    return sprintf "[Socket FILE %s]", $self->{filename};
+    return sprintf "[Socket FILE %s%s]", $self->{filename}, $self->{close}?" CLOSING":"";
 }
 
 sub canread {

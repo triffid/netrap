@@ -27,6 +27,9 @@ sub new {
     $self->{name}       = sprintf "%s:%d", $self->{remoteaddr}, $self->{remoteport};
 
     $self->{printer} = undef;
+    if (scalar keys(%Netrap::Socket::Printer::PrinterSockets) == 1) {
+        $self->{printer} = $Netrap::Socket::Printer::PrinterSockets{(keys(%Netrap::Socket::Printer::PrinterSockets))[0]};
+    }
     $self->addEvent('Gcode');
 
     bless $self, $class;
